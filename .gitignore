@@ -31,3 +31,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# wombat
+/bin/
+testdata/spec/repo/
+testdata/spec/json/
