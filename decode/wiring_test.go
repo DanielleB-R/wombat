@@ -1,6 +1,7 @@
 package decode
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 )
@@ -17,13 +18,28 @@ var errNotWired = errors.New("decode tests are not wired to the implementation y
 
 // testReadU32 decodes one LEB128 u32 from the front of b (spec 5.2.2) and
 // reports how many bytes it consumed.
-func testReadU32(b []byte) (v uint32, n int, err error) { return ReadLEB128U32(b) }
+func testReadU32(b []byte) (v uint32, n int, err error) {
+	reader := bytes.NewReader(b)
+	v, err = ReadLEB128U32(reader)
+	n = len(b) - reader.Len()
+	return
+}
 
 // testReadS32 decodes one LEB128 s32 (the immediate of i32.const).
-func testReadS32(b []byte) (v int32, n int, err error) { return ReadLEB128I32(b) }
+func testReadS32(b []byte) (v int32, n int, err error) {
+	reader := bytes.NewReader(b)
+	v, err = ReadLEB128I32(reader)
+	n = len(b) - reader.Len()
+	return
+}
 
 // testReadS64 decodes one LEB128 s64 (the immediate of i64.const).
-func testReadS64(b []byte) (v int64, n int, err error) { return ReadLEB128I64(b) }
+func testReadS64(b []byte) (v int64, n int, err error) {
+	reader := bytes.NewReader(b)
+	v, err = ReadLEB128I64(reader)
+	n = len(b) - reader.Len()
+	return
+}
 
 // testDecode decodes a complete module. It must return nil exactly when the
 // bytes are a well-formed WebAssembly 1.0 binary, and an error otherwise. It
