@@ -77,10 +77,15 @@ func TestReadS32(t *testing.T) {
 
 		{name: "empty input", in: nil, wantErr: true},
 		{name: "truncated", in: []byte{0xFF, 0xFF}, wantErr: true},
-		{name: "positive with unused bits set (0x0F)", in: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, wantErr: true},
-		{name: "positive overflow (0x08)", in: []byte{0x80, 0x80, 0x80, 0x80, 0x08}, wantErr: true},
-		{name: "negative with unused bits clear (0x40)", in: []byte{0x80, 0x80, 0x80, 0x80, 0x40}, wantErr: true},
-		{name: "negative with unused bits clear (0x70)", in: []byte{0x80, 0x80, 0x80, 0x80, 0x70}, wantErr: true},
+		// The 5th byte carries value bits 28-31 in its low four bits (bit 3 is
+		// the sign bit) and three unused bits above them (bits 4-6) that must
+		// all equal the sign bit. So only 0x00-0x07 and 0x78-0x7F are valid.
+		{name: "5th byte 0x08: sign bit set, unused bits clear (2^31 overflows)", in: []byte{0x80, 0x80, 0x80, 0x80, 0x08}, wantErr: true},
+		{name: "5th byte 0x0F: sign bit set, unused bits clear (u32 max is not an s32)", in: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, wantErr: true},
+		{name: "5th byte 0x17: sign bit clear, unused bit 4 set", in: []byte{0x80, 0x80, 0x80, 0x80, 0x17}, wantErr: true},
+		{name: "5th byte 0x40: sign bit clear, unused bits mixed (100)", in: []byte{0x80, 0x80, 0x80, 0x80, 0x40}, wantErr: true},
+		{name: "5th byte 0x68: sign bit set, unused bits mixed (110)", in: []byte{0x80, 0x80, 0x80, 0x80, 0x68}, wantErr: true},
+		{name: "5th byte 0x70: sign bit clear, unused bits all set", in: []byte{0x80, 0x80, 0x80, 0x80, 0x70}, wantErr: true},
 		{name: "six bytes", in: []byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x00}, wantErr: true},
 	}
 	for _, tc := range tests {
@@ -123,8 +128,12 @@ func TestReadS64(t *testing.T) {
 
 		{name: "empty input", in: nil, wantErr: true},
 		{name: "truncated at nine bytes", in: ff9, wantErr: true},
-		{name: "tenth byte 0x01 (positive overflow)", in: with(z9, 0x01), wantErr: true},
-		{name: "tenth byte 0x7E (negative, low bit clear)", in: with(z9, 0x7E), wantErr: true},
+		// The 10th byte carries only value bit 63 (its bit 0, the sign bit);
+		// bits 1-6 are unused and must equal it. Only 0x00 and 0x7F are valid.
+		{name: "10th byte 0x01: sign bit set, unused bits clear", in: with(z9, 0x01), wantErr: true},
+		{name: "10th byte 0x02: sign bit clear, unused bit 1 set", in: with(z9, 0x02), wantErr: true},
+		{name: "10th byte 0x40: sign bit clear, unused bits mixed", in: with(z9, 0x40), wantErr: true},
+		{name: "10th byte 0x7E: sign bit clear, unused bits all set", in: with(z9, 0x7E), wantErr: true},
 		{name: "eleven bytes", in: with(ff9, 0xFF, 0x00), wantErr: true},
 	}
 	for _, tc := range tests {
