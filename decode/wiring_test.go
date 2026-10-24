@@ -17,7 +17,7 @@ var errNotWired = errors.New("decode tests are not wired to the implementation y
 
 // testReadU32 decodes one LEB128 u32 from the front of b (spec 5.2.2) and
 // reports how many bytes it consumed.
-func testReadU32(_ []byte) (v uint32, n int, err error) { return 0, 0, errNotWired }
+func testReadU32(b []byte) (v uint32, n int, err error) { return ReadLEB128U32(b) }
 
 // testReadS32 decodes one LEB128 s32 (the immediate of i32.const).
 func testReadS32(_ []byte) (v int32, n int, err error) { return 0, 0, errNotWired }
