@@ -23,7 +23,7 @@ func testReadU32(b []byte) (v uint32, n int, err error) { return ReadLEB128U32(b
 func testReadS32(b []byte) (v int32, n int, err error) { return ReadLEB128I32(b) }
 
 // testReadS64 decodes one LEB128 s64 (the immediate of i64.const).
-func testReadS64(_ []byte) (v int64, n int, err error) { return 0, 0, errNotWired }
+func testReadS64(b []byte) (v int64, n int, err error) { return ReadLEB128I64(b) }
 
 // testDecode decodes a complete module. It must return nil exactly when the
 // bytes are a well-formed WebAssembly 1.0 binary, and an error otherwise. It
