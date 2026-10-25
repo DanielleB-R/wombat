@@ -3,6 +3,7 @@ package decode
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -498,4 +499,49 @@ func FuzzDecode(f *testing.F) {
 		err := testDecode(data)
 		skipIfNotWired(t, err)
 	})
+}
+
+// A length or count read from the input must be checked against the bytes that
+// remain before anything is allocated for it. Each input below claims about
+// 4 billion elements in a few bytes; a decoder that trusts the claim allocates
+// gigabytes (Linux hands out zeroed memory lazily, so the test would otherwise
+// still pass) and the fuzzer or a hostile .wasm turns that into an out-of-
+// memory kill.
+func TestDecodeHugeLengthsDoNotAllocate(t *testing.T) {
+	huge := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x0F} // u32 4294967295
+	tests := []decodeCase{
+		{"type vector", mod(sec(secType, huge...))},
+		{"import vector", mod(sec(secImport, huge...))},
+		{"function vector", mod(sec(secFunc, huge...))},
+		{"table vector", mod(sec(secTable, huge...))},
+		{"memory vector", mod(sec(secMemory, huge...))},
+		{"global vector", mod(sec(secGlobal, huge...))},
+		{"export vector", mod(sec(secExport, huge...))},
+		{"element vector", mod(sec(secElement, huge...))},
+		{"code vector", mod(sec(secCode, huge...))},
+		{"data vector", mod(sec(secData, huge...))},
+		{"param vector", mod(sec(secType, bs([]byte{0x01, typeFunc}, huge)...))},
+		{"result vector", mod(sec(secType, bs([]byte{0x01, typeFunc, 0x00}, huge)...))},
+		{"import module name", mod(sec(secImport, bs([]byte{0x01}, huge)...))},
+		{"export name", mod(sec(secExport, bs([]byte{0x01}, huge)...))},
+		{"custom section name", mod(sec(secCustom, huge...))},
+		{"element function vector", mod(sec(secElement, bs([]byte{0x01, 0x00, 0x41, 0x00, opEnd}, huge)...))},
+		{"data byte count", mod(sec(secData, bs([]byte{0x01, 0x00, 0x41, 0x00, opEnd}, huge)...))},
+		{"code entry size", mod(typeSec(), funcSec(), sec(secCode, bs([]byte{0x01}, huge)...))},
+		{"locals vector", mod(typeSec(), funcSec(), sec(secCode, bs([]byte{0x01, 0x05}, huge)...))},
+		{"br_table label vector", bodyMod(bs([]byte{0x0E}, huge)...)},
+	}
+	const limit = 1 << 20 // generous: these inputs are all under 40 bytes
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			err := testDecode(tc.in)
+			runtime.ReadMemStats(&after)
+			skipIfNotWired(t, err)
+			require.Error(t, err)
+			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(limit),
+				"allocated %d MiB for a %d-byte input", (after.TotalAlloc-before.TotalAlloc)>>20, len(tc.in))
+		})
+	}
 }
