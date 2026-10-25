@@ -54,8 +54,10 @@ type TypeSection struct {
 	FunctionTypes []FunctionType
 }
 
+// ExternKind represents the kind of an import or export
 type ExternKind byte
 
+// The possible values for ExternKind
 const (
 	FuncKind   ExternKind = 0x00
 	TableKind  ExternKind = 0x01
@@ -63,15 +65,18 @@ const (
 	GlobalKind ExternKind = 0x03
 )
 
+// IsValid returns whether the value matches the spec
 func (v ExternKind) IsValid() bool {
 	return v <= GlobalKind
 }
 
+// GlobalType represents the type of a global
 type GlobalType struct {
 	ValType ValType
 	Mutable bool
 }
 
+// ImportDesc represents the inner structure of the import from a Wasm file
 type ImportDesc struct {
 	Kind        ExternKind
 	FuncIdx     uint32
@@ -94,7 +99,10 @@ type ImportSection struct {
 
 type FunctionSection struct{}
 
-type TableSection struct{}
+// TableSection contains the table section data
+type TableSection struct {
+	Tables []Limits
+}
 
 type MemorySection struct{}
 

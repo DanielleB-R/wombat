@@ -89,6 +89,12 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 				return nil, fmt.Errorf("error decoding input section: %w", err)
 			}
 			module.Import = importSection
+		case 4:
+			tableSection, err := decodeTableSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding table section: %w", err)
+			}
+			module.Table = tableSection
 			// default:
 			// 	return nil, errors.New("unknown section type")
 		}
@@ -198,11 +204,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 			}
 			imports[i].Desc.FuncIdx = idx
 		case wasm.TableKind:
-			err := expectByte(reader, 0x70)
-			if err != nil {
-				return nil, err
-			}
-			limits, err := readLimits(reader)
+			limits, err := readTableType(reader)
 			if err != nil {
 				return nil, err
 			}
@@ -232,4 +234,29 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 	}
 
 	return &wasm.ImportSection{Imports: imports}, nil
+}
+
+func decodeTableSection(contents []byte) (*wasm.TableSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	tables := make([]wasm.Limits, length)
+
+	for i := range length {
+		limits, err := readTableType(reader)
+		if err != nil {
+			return nil, err
+		}
+		tables[i] = limits
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.TableSection{Tables: tables}, nil
 }

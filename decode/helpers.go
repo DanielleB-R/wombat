@@ -97,18 +97,18 @@ func readLimits(reader *bytes.Reader) (wasm.Limits, error) {
 	}
 	limits.HasMax = flag
 
-	min, err := ReadLEB128U32(reader)
+	minVal, err := ReadLEB128U32(reader)
 	if err != nil {
 		return limits, err
 	}
-	limits.Min = min
+	limits.Min = minVal
 
 	if limits.HasMax {
-		max, err := ReadLEB128U32(reader)
+		maxVal, err := ReadLEB128U32(reader)
 		if err != nil {
 			return limits, err
 		}
-		limits.Max = max
+		limits.Max = maxVal
 	}
 
 	return limits, nil
@@ -135,4 +135,12 @@ func readBool(reader *bytes.Reader) (bool, error) {
 		return false, BadEnum
 	}
 	return flag == 1, nil
+}
+
+func readTableType(reader *bytes.Reader) (wasm.Limits, error) {
+	err := expectByte(reader, 0x70)
+	if err != nil {
+		return wasm.Limits{}, err
+	}
+	return readLimits(reader)
 }
