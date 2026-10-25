@@ -148,7 +148,17 @@ type StartSection struct {
 	FuncIdx uint32
 }
 
-type ElementSection struct{}
+// Element represents a single element
+type Element struct {
+	TableIdx uint32
+	Offset   *Expr
+	Init     []uint32
+}
+
+// ElementSection contains the element section data
+type ElementSection struct {
+	Elements []Element
+}
 
 // Local contains the definition of one local var
 type Local struct {
@@ -175,7 +185,17 @@ func (f *CodeSection) Len() int {
 	return len(f.Codes)
 }
 
-type DataSection struct{}
+// DataEntry contains one entry from the data section
+type DataEntry struct {
+	MemIdx uint32
+	Offset *Expr
+	Init   []byte
+}
+
+// DataSection contains the data section data
+type DataSection struct {
+	Entries []DataEntry
+}
 
 // Limits represents WASM limits; a minimum with an optional maximum
 type Limits struct {

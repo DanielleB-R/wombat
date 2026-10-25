@@ -126,15 +126,27 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 				return nil, fmt.Errorf("error decoding start section: %w", err)
 			}
 			module.Start = startSection
+		case 9:
+			elementSection, err := decodeElementSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding element section: %w", err)
+			}
+			module.Element = elementSection
 		case 10:
 			codeSection, err := decodeCodeSection(rawSection.Contents)
 			if err != nil {
 				return nil, fmt.Errorf("error decoding code section: %w", err)
 			}
 			module.Code = codeSection
+		case 11:
+			dataSection, err := decodeDataSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding data section: %w", err)
+			}
+			module.Data = dataSection
 
-			// default:
-			// 	return nil, errors.New("unknown section type")
+		default:
+			return nil, errors.New("unknown section type")
 		}
 	}
 
@@ -426,6 +438,43 @@ func decodeStartSection(contents []byte) (*wasm.StartSection, error) {
 	return &wasm.StartSection{FuncIdx: idx}, nil
 }
 
+func decodeElementSection(contents []byte) (*wasm.ElementSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	elements := make([]wasm.Element, length)
+
+	for i := range length {
+		tableIdx, err := ReadLEB128U32(reader)
+		if err != nil {
+			return nil, err
+		}
+		elements[i].TableIdx = tableIdx
+
+		offset, err := readExpr(reader)
+		if err != nil {
+			return nil, err
+		}
+		elements[i].Offset = offset
+
+		init, err := readIndexVector(reader)
+		if err != nil {
+			return nil, err
+		}
+		elements[i].Init = init
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.ElementSection{Elements: elements}, nil
+}
+
 func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 	reader := bytes.NewReader(contents)
 
@@ -503,4 +552,51 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 	}
 
 	return &wasm.CodeSection{Codes: codes}, nil
+}
+
+func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]wasm.DataEntry, length)
+
+	for i := range length {
+		memIdx, err := ReadLEB128U32(reader)
+		if err != nil {
+			return nil, err
+		}
+		entries[i].MemIdx = memIdx
+
+		offset, err := readExpr(reader)
+		if err != nil {
+			return nil, err
+		}
+		entries[i].Offset = offset
+
+		initLength, err := readLength(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		init := make([]byte, initLength)
+
+		n, err := reader.Read(init)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if n != int(initLength) {
+			return nil, NotEnoughBytes
+		}
+		entries[i].Init = init
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.DataSection{Entries: entries}, nil
 }
