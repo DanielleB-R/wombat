@@ -231,3 +231,55 @@ func TestDecodeTableFixture(t *testing.T) {
 	require.NotNil(t, m.Table)
 	require.Equal(t, []wasm.Limits{{Min: 2}}, m.Table.Tables)
 }
+
+func TestDecodeMemoryContents(t *testing.T) {
+	// Spec 5.3.4 / 5.5.7: a memory type is just limits. Limits that break the
+	// 2^16 page cap or have min > max are validation errors (3.2.3), not
+	// decoding ones, so they must decode.
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.Limits
+	}{
+		{"min only", []byte{0x01, 0x00, 0x01}, []wasm.Limits{{Min: 1}}},
+		{"min and max", []byte{0x01, 0x01, 0x01, 0x02}, []wasm.Limits{{HasMax: true, Min: 1, Max: 2}}},
+		{"min 0", []byte{0x01, 0x00, 0x00}, []wasm.Limits{{}}},
+		{"65536 pages, three-byte LEB128", []byte{0x01, 0x01, 0x80, 0x80, 0x04, 0x80, 0x80, 0x04}, []wasm.Limits{{HasMax: true, Min: 65536, Max: 65536}}},
+		{"over the page cap decodes (validator rejects)", []byte{0x01, 0x00, 0x81, 0x80, 0x04}, []wasm.Limits{{Min: 65537}}},
+		{"min above max decodes (validator rejects)", []byte{0x01, 0x01, 0x02, 0x01}, []wasm.Limits{{HasMax: true, Min: 2, Max: 1}}},
+		{"two memories decode (validator rejects)", []byte{0x02, 0x00, 0x01, 0x01, 0x02, 0x03}, []wasm.Limits{{Min: 1}, {HasMax: true, Min: 2, Max: 3}}},
+		{"empty section", []byte{0x00}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secMemory, tc.body...)))
+			if len(tc.want) == 0 {
+				require.True(t, m.Memory == nil || len(m.Memory.Memories) == 0)
+				return
+			}
+			require.NotNil(t, m.Memory)
+			require.Equal(t, tc.want, m.Memory.Memories)
+		})
+	}
+}
+
+// `wasm-objdump -x`: memory.wasm has Memory[1] initial=1 max=65536, and
+// local.wasm has Memory[1] initial=1 max=2.
+func TestDecodeMemoryFixtures(t *testing.T) {
+	tests := []struct {
+		file string
+		want wasm.Limits
+	}{
+		{"memory.wasm", wasm.Limits{HasMax: true, Min: 1, Max: 65536}},
+		{"local.wasm", wasm.Limits{HasMax: true, Min: 1, Max: 2}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", tc.file))
+			require.NoError(t, err)
+			m := decodeOrSkip(t, data)
+			require.NotNil(t, m.Memory)
+			require.Equal(t, []wasm.Limits{tc.want}, m.Memory.Memories)
+		})
+	}
+}
