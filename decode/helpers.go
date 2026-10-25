@@ -22,6 +22,10 @@ const (
 	BadEnum
 	UnderfullSection
 	UnexpectedElse
+	SectionOutOfOrder
+	UnknownSectionType
+	FunctionCodeMismatch
+	TooManyLocals
 )
 
 func (d Error) Error() string {
@@ -42,6 +46,14 @@ func (d Error) Error() string {
 		return "contents didn't fill section"
 	case UnexpectedElse:
 		return "invalid else instruction"
+	case SectionOutOfOrder:
+		return "section out of order"
+	case UnknownSectionType:
+		return "unknown section type"
+	case FunctionCodeMismatch:
+		return "function and code length must match"
+	case TooManyLocals:
+		return "too many locals"
 	default:
 		panic("invalid value")
 	}

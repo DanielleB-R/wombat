@@ -31,10 +31,10 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		if id != 0 && id <= lastID {
-			return nil, errors.New("section out of order")
+			return nil, SectionOutOfOrder
 		}
 		if id > 11 {
-			return nil, errors.New("unknown section type")
+			return nil, UnknownSectionType
 		}
 		if id != 0 {
 			lastID = id
@@ -46,13 +46,13 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		if length > uint32(reader.Len()) {
-			return nil, errors.New("section length too long")
+			return nil, LengthTooLong
 		}
 
 		contents := make([]byte, length)
 		n, err := reader.Read(contents)
 		if n != int(length) {
-			return nil, errors.New("contents unavailable")
+			return nil, NotEnoughBytes
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("error reading section contents, %w", err)
@@ -147,12 +147,12 @@ func ParseSections(raw *wasm.RawModule) (*wasm.Module, error) {
 			module.Data = dataSection
 
 		default:
-			return nil, errors.New("unknown section type")
+			return nil, UnknownSectionType
 		}
 	}
 
 	if module.Function.Len() != module.Code.Len() {
-		return nil, errors.New("function and code length must match")
+		return nil, FunctionCodeMismatch
 	}
 
 	return &module, nil
@@ -246,7 +246,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
-			return nil, errors.New("invalid import kind")
+			return nil, BadEnum
 		}
 
 		imports[i].Desc.Kind = extKind
@@ -405,7 +405,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
-			return nil, errors.New("invalid export kind")
+			return nil, BadEnum
 		}
 
 		exports[i].Kind = extKind
@@ -545,7 +545,7 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 	}
 
 	if localCount > 0xffffffff {
-		return nil, errors.New("too many locals")
+		return nil, TooManyLocals
 	}
 
 	if reader.Len() > 0 {

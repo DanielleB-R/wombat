@@ -2,8 +2,30 @@ package decode
 
 import (
 	"bytes"
-	"errors"
 )
+
+// LEB128Error is the error type for the LEB128 code
+type LEB128Error byte
+
+// These are the possible error values
+const (
+	IncompleteNumber LEB128Error = iota
+	NumberTooLarge
+	UnusableBits
+)
+
+func (l LEB128Error) Error() string {
+	switch l {
+	case IncompleteNumber:
+		return "incomplete number"
+	case NumberTooLarge:
+		return "number too large"
+	case UnusableBits:
+		return "unusable bits"
+	default:
+		panic("bad error")
+	}
+}
 
 // ReadLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader
 func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
@@ -12,17 +34,17 @@ func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
 
 	for {
 		if reader.Len() == 0 {
-			return 0, errors.New("incomplete number")
+			return 0, IncompleteNumber
 		}
 		if bytes >= 5 {
-			return 0, errors.New("number too large")
+			return 0, NumberTooLarge
 		}
 		thisByte, err := reader.ReadByte()
 		if err != nil {
 			panic(err)
 		}
 		if bytes == 4 && thisByte&0x70 != 0 {
-			return 0, errors.New("unusable bits")
+			return 0, UnusableBits
 		}
 		result |= uint32(thisByte&0x7f) << (bytes * 7)
 		if thisByte&0x80 == 0 {
@@ -43,10 +65,10 @@ func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 
 	for {
 		if reader.Len() == 0 {
-			return 0, errors.New("incomplete number")
+			return 0, IncompleteNumber
 		}
 		if bytes >= 5 {
-			return 0, errors.New("number too large")
+			return 0, NumberTooLarge
 		}
 		thisByte, err = reader.ReadByte()
 		if err != nil {
@@ -64,7 +86,7 @@ func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 		result |= (^0) << ((bytes + 1) * 7)
 	}
 	if bytes == 4 && thisByte&0x70 != (thisByte&0x08>>3)*0x70 {
-		return 0, errors.New("unusable bits")
+		return 0, UnusableBits
 	}
 
 	return result, nil
@@ -79,10 +101,10 @@ func ReadLEB128I64(reader *bytes.Reader) (int64, error) {
 
 	for {
 		if reader.Len() == 0 {
-			return 0, errors.New("incomplete number")
+			return 0, IncompleteNumber
 		}
 		if bytes >= 10 {
-			return 0, errors.New("number too large")
+			return 0, NumberTooLarge
 		}
 		thisByte, err = reader.ReadByte()
 		if err != nil {
@@ -100,7 +122,7 @@ func ReadLEB128I64(reader *bytes.Reader) (int64, error) {
 		result |= (^0) << ((bytes + 1) * 7)
 	}
 	if bytes == 9 && thisByte&0x7e != (thisByte&0x01)*0x7e {
-		return 0, errors.New("unusable bits")
+		return 0, UnusableBits
 	}
 
 	return result, nil
