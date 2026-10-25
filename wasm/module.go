@@ -112,7 +112,16 @@ type MemorySection struct {
 	Memories []Limits
 }
 
-type GlobalSection struct{}
+// GlobalDefinition contains the definition of a global, including initializer
+type GlobalDefinition struct {
+	Type GlobalType
+	Init *Expr
+}
+
+// GlobalSection contains the global section data
+type GlobalSection struct {
+	Definitions []GlobalDefinition
+}
 
 type ExportSection struct{}
 
@@ -120,10 +129,12 @@ type StartSection struct{}
 
 type ElementSection struct{}
 
+// CodeSection contains the code section data
 type CodeSection struct{}
 
 type DataSection struct{}
 
+// Limits represents WASM limits; a minimum with an optional maximum
 type Limits struct {
 	HasMax bool
 	Min    uint32

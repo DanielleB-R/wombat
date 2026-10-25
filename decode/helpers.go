@@ -163,3 +163,165 @@ func readIndexVector(reader *bytes.Reader) ([]uint32, error) {
 
 	return indexes, nil
 }
+
+func readGlobalType(reader *bytes.Reader) (wasm.GlobalType, error) {
+	var result wasm.GlobalType
+
+	valType, err := readValueType(reader)
+	if err != nil {
+		return result, err
+	}
+	result.ValType = valType
+	mutable, err := readBool(reader)
+	if err != nil {
+		return result, err
+	}
+	result.Mutable = mutable
+
+	return result, nil
+}
+
+func readInstruction(reader *bytes.Reader) (wasm.Inst, error) {
+	var result wasm.Inst
+
+	opcode, err := readOpcode(reader)
+	if err != nil {
+		return result, err
+	}
+	result.Opcode = opcode
+
+	immediate, err := readImmediate(reader, opcode)
+	if err != nil {
+		return result, err
+	}
+	result.Immediate = immediate
+
+	return result, nil
+}
+
+func readOpcode(reader *bytes.Reader) (wasm.Opcode, error) {
+	input, err := reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	opcode := wasm.Opcode(input)
+	if !opcode.IsValid() {
+		return 0, BadEnum
+	}
+	return opcode, nil
+}
+
+func readMemArg(reader *bytes.Reader) (wasm.MemArg, error) {
+	var result wasm.MemArg
+
+	align, err := ReadLEB128U32(reader)
+	if err != nil {
+		return result, err
+	}
+	result.Align = align
+
+	offset, err := ReadLEB128U32(reader)
+	if err != nil {
+		return result, err
+	}
+	result.Offset = offset
+
+	return result, nil
+}
+
+func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
+	// we assume the opcode is valid
+	switch opcode {
+	case wasm.Block:
+	case wasm.Loop:
+	case wasm.If:
+		// more validation here later
+		return reader.ReadByte()
+	case wasm.Br, wasm.BrIf, wasm.Call, wasm.LocalGet, wasm.LocalSet, wasm.LocalTee, wasm.GlobalGet, wasm.GlobalSet:
+		// read an index
+		return ReadLEB128U32(reader)
+	case wasm.BrTable:
+		idx, err := readIndexVector(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		defaultIdx, err := ReadLEB128U32(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		return wasm.BranchTable{Indices: idx, Default: defaultIdx}, nil
+	case wasm.CallIndirect:
+		typeIdx, err := ReadLEB128U32(reader)
+		if err != nil {
+			return nil, err
+		}
+		err = expectByte(reader, 0x00)
+		if err != nil {
+			return nil, err
+		}
+		return typeIdx, nil
+	case wasm.I32Load, wasm.I64Load, wasm.F32Load, wasm.F64Load, wasm.I32Load8S, wasm.I32Load8U, wasm.I32Load16S, wasm.I32Load16U, wasm.I64Load8S, wasm.I64Load8U, wasm.I64Load16S, wasm.I64Load16U, wasm.I64Load32S, wasm.I64Load32U, wasm.I32Store, wasm.I64Store, wasm.F32Store, wasm.F64Store, wasm.I32Store8, wasm.I32Store16, wasm.I64Store8, wasm.I64Store16, wasm.I64Store32:
+		return readMemArg(reader)
+	case wasm.MemSize, wasm.MemGrow:
+		err := expectByte(reader, 0x00)
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	case wasm.I32Const:
+		return ReadLEB128I32(reader)
+	case wasm.I64Const:
+		return ReadLEB128I64(reader)
+	case wasm.F32Const:
+		result := [4]byte{0}
+		n, err := reader.Read(result[:])
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if n != 4 {
+			return nil, NotEnoughBytes
+		}
+		return result, nil
+	case wasm.F64Const:
+		result := [8]byte{0}
+		n, err := reader.Read(result[:])
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if n != 8 {
+			return nil, NotEnoughBytes
+		}
+		return result, nil
+	}
+
+	return nil, nil
+}
+
+func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
+	var instructions []wasm.Inst
+
+	depth := 0
+
+	for {
+		inst, err := readInstruction(reader)
+		if err != nil {
+			return nil, err
+		}
+		instructions = append(instructions, inst)
+
+		if inst.Opcode == wasm.End {
+			if depth == 0 {
+				break
+			} else {
+				depth--
+			}
+		}
+		if inst.Opcode == wasm.Block || inst.Opcode == wasm.Loop || inst.Opcode == wasm.If {
+			depth++
+		}
+	}
+
+	return &wasm.Expr{Instructions: instructions}, nil
+}

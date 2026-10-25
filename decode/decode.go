@@ -108,6 +108,12 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 				return nil, fmt.Errorf("error decoding memory section: %w", err)
 			}
 			module.Memory = memorySection
+		case 6:
+			globalSection, err := decodeGlobalSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding global section: %w", err)
+			}
+			module.Global = globalSection
 			// default:
 			// 	return nil, errors.New("unknown section type")
 		}
@@ -229,16 +235,11 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 			}
 			imports[i].Desc.MemLimits = limits
 		case wasm.GlobalKind:
-			valType, err := readValueType(reader)
+			globalType, err := readGlobalType(reader)
 			if err != nil {
 				return nil, err
 			}
-			imports[i].Desc.GlobalType.ValType = valType
-			mutable, err := readBool(reader)
-			if err != nil {
-				return nil, err
-			}
-			imports[i].Desc.GlobalType.Mutable = mutable
+			imports[i].Desc.GlobalType = globalType
 		}
 	}
 
@@ -312,4 +313,35 @@ func decodeMemorySection(contents []byte) (*wasm.MemorySection, error) {
 	}
 
 	return &wasm.MemorySection{Memories: memories}, nil
+}
+
+func decodeGlobalSection(contents []byte) (*wasm.GlobalSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	globals := make([]wasm.GlobalDefinition, length)
+
+	for i := range length {
+		globalType, err := readGlobalType(reader)
+		if err != nil {
+			return nil, err
+		}
+		globals[i].Type = globalType
+
+		init, err := readExpr(reader)
+		if err != nil {
+			return nil, err
+		}
+		globals[i].Init = init
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.GlobalSection{Definitions: globals}, nil
 }
