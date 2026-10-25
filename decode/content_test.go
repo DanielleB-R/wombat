@@ -1,6 +1,7 @@
 package decode
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -759,4 +760,217 @@ func TestDecodeStartFixtures(t *testing.T) {
 			require.Nil(t, m.Start)
 		})
 	}
+}
+
+func TestDecodeElementContents(t *testing.T) {
+	// Spec 5.5.12: vec(tableidx offset:expr init:vec(funcidx)). Table
+	// indices other than 0 and offsets that are not i32 constants are
+	// validation errors in 1.0, not decoding ones.
+	i32const := func(v int32) []wasm.Inst {
+		return []wasm.Inst{{Opcode: wasm.I32Const, Immediate: v}, {Opcode: wasm.End}}
+	}
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.Element
+	}{
+		{
+			name: "offset 0 with two functions",
+			body: []byte{0x01, 0x00, 0x41, 0x00, opEnd, 0x02, 0x00, 0x01},
+			want: []wasm.Element{{TableIdx: 0, Offset: &wasm.Expr{Instructions: i32const(0)}, Init: []uint32{0, 1}}},
+		},
+		{
+			name: "function indices keep their order and may repeat",
+			body: []byte{0x01, 0x00, 0x41, 0x00, opEnd, 0x04, 0x03, 0x01, 0x03, 0x00},
+			want: []wasm.Element{{Offset: &wasm.Expr{Instructions: i32const(0)}, Init: []uint32{3, 1, 3, 0}}},
+		},
+		{
+			name: "multi-byte function index (0x80 0x01 = 128)",
+			body: []byte{0x01, 0x00, 0x41, 0x00, opEnd, 0x01, 0x80, 0x01},
+			want: []wasm.Element{{Offset: &wasm.Expr{Instructions: i32const(0)}, Init: []uint32{128}}},
+		},
+		{
+			name: "multi-byte offset (0x80 0x01 = 128)",
+			body: []byte{0x01, 0x00, 0x41, 0x80, 0x01, opEnd, 0x01, 0x00},
+			want: []wasm.Element{{Offset: &wasm.Expr{Instructions: i32const(128)}, Init: []uint32{0}}},
+		},
+		{
+			name: "offset whose LEB128 byte is 0x0B (an i32.const 11, then end)",
+			body: []byte{0x01, 0x00, 0x41, 0x0B, opEnd, 0x01, 0x00},
+			want: []wasm.Element{{Offset: &wasm.Expr{Instructions: i32const(11)}, Init: []uint32{0}}},
+		},
+		{
+			name: "offset from global.get",
+			body: []byte{0x01, 0x00, 0x23, 0x02, opEnd, 0x01, 0x00},
+			want: []wasm.Element{{Offset: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.GlobalGet, Immediate: uint32(2)}, {Opcode: wasm.End}}}, Init: []uint32{0}}},
+		},
+		{
+			name: "empty function list",
+			body: []byte{0x01, 0x00, 0x41, 0x05, opEnd, 0x00},
+			want: []wasm.Element{{Offset: &wasm.Expr{Instructions: i32const(5)}}},
+		},
+		{
+			name: "table index 1 decodes (validator rejects)",
+			body: []byte{0x01, 0x01, 0x41, 0x00, opEnd, 0x01, 0x00},
+			want: []wasm.Element{{TableIdx: 1, Offset: &wasm.Expr{Instructions: i32const(0)}, Init: []uint32{0}}},
+		},
+		{
+			name: "several segments keep their order",
+			body: []byte{0x02, 0x00, 0x41, 0x00, opEnd, 0x01, 0x07, 0x00, 0x41, 0x04, opEnd, 0x02, 0x08, 0x09},
+			want: []wasm.Element{
+				{Offset: &wasm.Expr{Instructions: i32const(0)}, Init: []uint32{7}},
+				{Offset: &wasm.Expr{Instructions: i32const(4)}, Init: []uint32{8, 9}},
+			},
+		},
+		{"empty section", []byte{0x00}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secElement, tc.body...)))
+			if len(tc.want) == 0 {
+				require.True(t, m.Element == nil || len(m.Element.Elements) == 0)
+				return
+			}
+			require.NotNil(t, m.Element)
+			require.Len(t, m.Element.Elements, len(tc.want))
+			for i, want := range tc.want {
+				got := m.Element.Elements[i]
+				require.Equal(t, want.TableIdx, got.TableIdx, "segment %d table", i)
+				require.Equal(t, want.Offset, got.Offset, "segment %d offset", i)
+				require.True(t, slices.Equal(want.Init, got.Init), "segment %d init: want %v, got %v", i, want.Init, got.Init)
+			}
+		})
+	}
+}
+
+// `wasm-objdump -x`: local.wasm has one segment, table 0, init i32=0, with
+// functions 0 and 1 (bytes 01 00 41 00 0b 02 00 01).
+func TestDecodeElementFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "local.wasm"))
+	require.NoError(t, err)
+	m := decodeOrSkip(t, data)
+	require.NotNil(t, m.Element)
+	require.Len(t, m.Element.Elements, 1)
+	e := m.Element.Elements[0]
+	require.Equal(t, uint32(0), e.TableIdx)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(0)}, {Opcode: wasm.End}}, e.Offset.Instructions)
+	require.Equal(t, []uint32{0, 1}, e.Init)
+}
+
+func TestDecodeDataContents(t *testing.T) {
+	// Spec 5.5.14: vec(memidx offset:expr init:vec(byte)). Memory indices
+	// other than 0 and offsets that are not i32 constants are validation
+	// errors in 1.0, not decoding ones.
+	i32const := func(v int32) *wasm.Expr {
+		return &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I32Const, Immediate: v}, {Opcode: wasm.End}}}
+	}
+	big := make([]byte, 200)
+	for i := range big {
+		big[i] = byte(i)
+	}
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.DataEntry
+	}{
+		{
+			name: "two bytes at offset 0",
+			body: []byte{0x01, 0x00, 0x41, 0x00, opEnd, 0x02, 0xAA, 0xBB},
+			want: []wasm.DataEntry{{Offset: i32const(0), Init: []byte{0xAA, 0xBB}}},
+		},
+		{
+			name: "empty bytes",
+			body: []byte{0x01, 0x00, 0x41, 0x04, opEnd, 0x00},
+			want: []wasm.DataEntry{{Offset: i32const(4)}},
+		},
+		{
+			name: "bytes that look like opcodes and end markers are data",
+			body: []byte{0x01, 0x00, 0x41, 0x00, opEnd, 0x05, 0x0B, 0x00, 0xFF, 0x41, 0x0B},
+			want: []wasm.DataEntry{{Offset: i32const(0), Init: []byte{0x0B, 0x00, 0xFF, 0x41, 0x0B}}},
+		},
+		{
+			name: "multi-byte offset (0x80 0x01 = 128)",
+			body: []byte{0x01, 0x00, 0x41, 0x80, 0x01, opEnd, 0x01, 0x07},
+			want: []wasm.DataEntry{{Offset: i32const(128), Init: []byte{0x07}}},
+		},
+		{
+			name: "offset from global.get",
+			body: []byte{0x01, 0x00, 0x23, 0x01, opEnd, 0x01, 0x07},
+			want: []wasm.DataEntry{{Offset: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.GlobalGet, Immediate: uint32(1)}, {Opcode: wasm.End}}}, Init: []byte{0x07}}},
+		},
+		{
+			name: "memory index 1 decodes (validator rejects)",
+			body: []byte{0x01, 0x01, 0x41, 0x00, opEnd, 0x01, 0x07},
+			want: []wasm.DataEntry{{MemIdx: 1, Offset: i32const(0), Init: []byte{0x07}}},
+		},
+		{
+			name: "several segments keep their order",
+			body: []byte{0x02, 0x00, 0x41, 0x00, opEnd, 0x01, 0x01, 0x00, 0x41, 0x08, opEnd, 0x02, 0x02, 0x03},
+			want: []wasm.DataEntry{
+				{Offset: i32const(0), Init: []byte{0x01}},
+				{Offset: i32const(8), Init: []byte{0x02, 0x03}},
+			},
+		},
+		{
+			name: "200 bytes needs a two-byte length (0xC8 0x01)",
+			body: bs([]byte{0x01, 0x00, 0x41, 0x00, opEnd, 0xC8, 0x01}, big),
+			want: []wasm.DataEntry{{Offset: i32const(0), Init: big}},
+		},
+		{"empty section", []byte{0x00}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secData, tc.body...)))
+			if len(tc.want) == 0 {
+				require.True(t, m.Data == nil || len(m.Data.Entries) == 0)
+				return
+			}
+			require.NotNil(t, m.Data)
+			require.Len(t, m.Data.Entries, len(tc.want))
+			for i, want := range tc.want {
+				got := m.Data.Entries[i]
+				require.Equal(t, want.MemIdx, got.MemIdx, "segment %d memory", i)
+				require.Equal(t, want.Offset, got.Offset, "segment %d offset", i)
+				require.True(t, bytes.Equal(want.Init, got.Init), "segment %d init: want % x, got % x", i, want.Init, got.Init)
+			}
+		})
+	}
+}
+
+// A decoded segment must own its bytes: scribbling over the input afterwards
+// must not change the module (the input may be a reused read buffer).
+func TestDecodeDataDoesNotAliasInput(t *testing.T) {
+	in := mod(sec(secData, 0x01, 0x00, 0x41, 0x00, opEnd, 0x03, 0x01, 0x02, 0x03))
+	m := decodeOrSkip(t, in)
+	for i := range in {
+		in[i] = 0xEE
+	}
+	require.NotNil(t, m.Data)
+	require.Equal(t, []byte{0x01, 0x02, 0x03}, m.Data.Entries[0].Init)
+}
+
+// `wasm-objdump -x`: local.wasm has one segment at offset 8 holding
+// "hello\x00\xff wombat" (14 bytes); memory.wasm has an empty segment at
+// offset 0 and a one-byte segment (0x01) at offset 65535.
+func TestDecodeDataFixtures(t *testing.T) {
+	read := func(name string) *wasm.Module {
+		data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", name))
+		require.NoError(t, err)
+		return decodeOrSkip(t, data)
+	}
+
+	local := read("local.wasm")
+	require.NotNil(t, local.Data)
+	require.Len(t, local.Data.Entries, 1)
+	require.Equal(t, uint32(0), local.Data.Entries[0].MemIdx)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(8)}, {Opcode: wasm.End}}, local.Data.Entries[0].Offset.Instructions)
+	require.Equal(t, []byte("hello\x00\xff wombat"), local.Data.Entries[0].Init)
+
+	mem := read("memory.wasm")
+	require.NotNil(t, mem.Data)
+	require.Len(t, mem.Data.Entries, 2)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(0)}, {Opcode: wasm.End}}, mem.Data.Entries[0].Offset.Instructions)
+	require.Empty(t, mem.Data.Entries[0].Init)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(65535)}, {Opcode: wasm.End}}, mem.Data.Entries[1].Offset.Instructions)
+	require.Equal(t, []byte{0x01}, mem.Data.Entries[1].Init)
 }
