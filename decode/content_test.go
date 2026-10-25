@@ -67,12 +67,12 @@ func TestDecodeImportContents(t *testing.T) {
 		{
 			name: "function, index 5",
 			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x00, 0x05},
-			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 5}}},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 5}}},
 		},
 		{
 			name: "function, multi-byte index (0x80 0x01 = 128)",
 			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x00, 0x80, 0x01},
-			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 128}}},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 128}}},
 		},
 		{
 			name: "table, min only",
@@ -137,9 +137,9 @@ func TestDecodeImportContents(t *testing.T) {
 				0x01, 'n', 0x01, 'f', 0x03, typeI32, 0x00,
 			},
 			want: []wasm.Import{
-				{Module: "m", Name: "f", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 1}},
+				{Module: "m", Name: "f", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 1}},
 				{Module: "m", Name: "g", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{Min: 1}}},
-				{Module: "m", Name: "h", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 0}},
+				{Module: "m", Name: "h", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 0}},
 				{Module: "n", Name: "f", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I32}}},
 			},
 		},
@@ -181,8 +181,8 @@ func TestDecodeImportsFixture(t *testing.T) {
 	requireFuncType(t, m.Type.FunctionTypes[1], []wasm.ValType{wasm.I32}, nil)
 
 	require.Equal(t, []wasm.Import{
-		{Module: "env", Name: "log", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 1}},
-		{Module: "env", Name: "conv", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 0}},
+		{Module: "env", Name: "log", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 1}},
+		{Module: "env", Name: "conv", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 0}},
 		{Module: "env", Name: "mem", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{HasMax: true, Min: 1, Max: 4}}},
 		{Module: "env", Name: "tab", Desc: wasm.ImportDesc{Kind: wasm.TableKind, TableLimits: wasm.Limits{Min: 2}}},
 		{Module: "env", Name: "g", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I32}}},

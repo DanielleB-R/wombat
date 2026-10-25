@@ -86,9 +86,16 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 		case 2:
 			importSection, err := decodeImportSection(rawSection.Contents)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding input section: %w", err)
+				return nil, fmt.Errorf("error decoding import section: %w", err)
 			}
 			module.Import = importSection
+		case 3:
+			functionSection, err := decodeFunctionSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding function section: %w", err)
+			}
+			module.Function = functionSection
+
 		case 4:
 			tableSection, err := decodeTableSection(rawSection.Contents)
 			if err != nil {
@@ -208,7 +215,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 			if err != nil {
 				return nil, err
 			}
-			imports[i].Desc.FuncIdx = idx
+			imports[i].Desc.FuncTypeIdx = idx
 		case wasm.TableKind:
 			limits, err := readTableType(reader)
 			if err != nil {
@@ -240,6 +247,21 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 	}
 
 	return &wasm.ImportSection{Imports: imports}, nil
+}
+
+func decodeFunctionSection(contents []byte) (*wasm.FunctionSection, error) {
+	reader := bytes.NewReader(contents)
+
+	funcTypeIdxs, err := readIndexVector(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.FunctionSection{FuncTypeIdxs: funcTypeIdxs}, nil
 }
 
 func decodeTableSection(contents []byte) (*wasm.TableSection, error) {

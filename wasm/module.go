@@ -79,7 +79,7 @@ type GlobalType struct {
 // ImportDesc represents the inner structure of the import from a Wasm file
 type ImportDesc struct {
 	Kind        ExternKind
-	FuncIdx     uint32
+	FuncTypeIdx uint32
 	TableLimits Limits
 	MemLimits   Limits
 	GlobalType  GlobalType
@@ -97,7 +97,10 @@ type ImportSection struct {
 	Imports []Import
 }
 
-type FunctionSection struct{}
+// FunctionSection contains the function section data
+type FunctionSection struct {
+	FuncTypeIdxs []uint32
+}
 
 // TableSection contains the table section data
 type TableSection struct {

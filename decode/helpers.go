@@ -144,3 +144,22 @@ func readTableType(reader *bytes.Reader) (wasm.Limits, error) {
 	}
 	return readLimits(reader)
 }
+
+func readIndexVector(reader *bytes.Reader) ([]uint32, error) {
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	indexes := make([]uint32, length)
+
+	for i := range length {
+		index, err := ReadLEB128U32(reader)
+		if err != nil {
+			return nil, err
+		}
+		indexes[i] = index
+	}
+
+	return indexes, nil
+}
