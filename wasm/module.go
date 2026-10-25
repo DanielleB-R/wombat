@@ -102,6 +102,14 @@ type FunctionSection struct {
 	FuncTypeIdxs []uint32
 }
 
+// Len returns the length of the function section, absent meaning 0
+func (f *FunctionSection) Len() int {
+	if f == nil {
+		return 0
+	}
+	return len(f.FuncTypeIdxs)
+}
+
 // TableSection contains the table section data
 type TableSection struct {
 	Tables []Limits
@@ -135,12 +143,37 @@ type ExportSection struct {
 	Exports []Export
 }
 
-type StartSection struct{}
+// StartSection contains the start section data
+type StartSection struct {
+	FuncIdx uint32
+}
 
 type ElementSection struct{}
 
+// Local contains the definition of one local var
+type Local struct {
+	Count uint32
+	Type  ValType
+}
+
+// Function contains one entry from the code section
+type Function struct {
+	Locals []Local
+	Body   *Expr
+}
+
 // CodeSection contains the code section data
-type CodeSection struct{}
+type CodeSection struct {
+	Codes []Function
+}
+
+// Len returns the length of the code section, absent meaning 0
+func (f *CodeSection) Len() int {
+	if f == nil {
+		return 0
+	}
+	return len(f.Codes)
+}
 
 type DataSection struct{}
 

@@ -120,9 +120,26 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 				return nil, fmt.Errorf("error decoding export section: %w", err)
 			}
 			module.Export = exportSection
+		case 8:
+			startSection, err := decodeStartSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding start section: %w", err)
+			}
+			module.Start = startSection
+		case 10:
+			codeSection, err := decodeCodeSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding code section: %w", err)
+			}
+			module.Code = codeSection
+
 			// default:
 			// 	return nil, errors.New("unknown section type")
 		}
+	}
+
+	if module.Function.Len() != module.Code.Len() {
+		return nil, errors.New("function and code length must match")
 	}
 
 	return &module, nil
@@ -392,4 +409,87 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 	}
 
 	return &wasm.ExportSection{Exports: exports}, nil
+}
+
+func decodeStartSection(contents []byte) (*wasm.StartSection, error) {
+	reader := bytes.NewReader(contents)
+
+	idx, err := ReadLEB128U32(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.StartSection{FuncIdx: idx}, nil
+}
+
+func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	codes := make([]wasm.Function, length)
+
+	for i := range length {
+		size, err := readLength(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		buffer := make([]byte, size)
+		n, err := reader.Read(buffer)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if n != int(size) {
+			return nil, NotEnoughBytes
+		}
+
+		funcReader := bytes.NewReader(buffer)
+
+		localLength, err := readLength(funcReader)
+		if err != nil {
+			return nil, err
+		}
+
+		locals := make([]wasm.Local, localLength)
+
+		for j := range localLength {
+			count, err := ReadLEB128U32(funcReader)
+			if err != nil {
+				return nil, err
+			}
+			locals[j].Count = count
+
+			valType, err := readValueType(funcReader)
+			if err != nil {
+				return nil, err
+			}
+			locals[j].Type = valType
+		}
+
+		codes[i].Locals = locals
+
+		expr, err := readExpr(funcReader)
+		if err != nil {
+			return nil, err
+		}
+		codes[i].Body = expr
+
+		if funcReader.Len() > 0 {
+			return nil, UnderfullSection
+		}
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.CodeSection{Codes: codes}, nil
 }

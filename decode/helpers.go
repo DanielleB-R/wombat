@@ -232,9 +232,7 @@ func readMemArg(reader *bytes.Reader) (wasm.MemArg, error) {
 func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 	// we assume the opcode is valid
 	switch opcode {
-	case wasm.Block:
-	case wasm.Loop:
-	case wasm.If:
+	case wasm.Block, wasm.Loop, wasm.If:
 		// more validation here later
 		return reader.ReadByte()
 	case wasm.Br, wasm.BrIf, wasm.Call, wasm.LocalGet, wasm.LocalSet, wasm.LocalTee, wasm.GlobalGet, wasm.GlobalSet:
