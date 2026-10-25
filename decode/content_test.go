@@ -283,3 +283,66 @@ func TestDecodeMemoryFixtures(t *testing.T) {
 		})
 	}
 }
+
+// codeSecN is a code section of n empty function bodies (no locals, just end),
+// so a function section of n entries is matched by a code section of n.
+func codeSecN(n int) []byte {
+	body := uleb(uint32(n))
+	for range n {
+		body = append(body, 0x02, 0x00, opEnd)
+	}
+	return sec(secCode, body...)
+}
+
+func TestDecodeFunctionContents(t *testing.T) {
+	// Spec 5.5.4: a vector of type indices. Whether each index names a real
+	// type is a validation matter, so out-of-range indices must still decode.
+	tests := []struct {
+		name string
+		body []byte
+		want []uint32
+	}{
+		{"one function", []byte{0x01, 0x00}, []uint32{0}},
+		{"indices keep their order", []byte{0x03, 0x00, 0x02, 0x01}, []uint32{0, 2, 1}},
+		{"repeated index", []byte{0x03, 0x01, 0x01, 0x01}, []uint32{1, 1, 1}},
+		{"multi-byte index (0x80 0x01 = 128)", []byte{0x01, 0x80, 0x01}, []uint32{128}},
+		{"index with no matching type decodes", []byte{0x01, 0x7F}, []uint32{127}},
+		{"largest index", []byte{0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, []uint32{4294967295}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := mod(typeSec(), sec(secFunc, tc.body...), codeSecN(len(tc.want)))
+			m := decodeOrSkip(t, in)
+			require.NotNil(t, m.Function)
+			require.Equal(t, tc.want, m.Function.FuncTypeIdxs)
+		})
+	}
+
+	t.Run("empty section", func(t *testing.T) {
+		m := decodeOrSkip(t, mod(typeSec(), sec(secFunc, 0x00)))
+		require.True(t, m.Function == nil || len(m.Function.FuncTypeIdxs) == 0)
+	})
+}
+
+// `wasm-objdump -x` lists each fixture's function signatures (sig=N is the
+// type index) in the Function section.
+func TestDecodeFunctionFixtures(t *testing.T) {
+	tests := []struct {
+		file string
+		want []uint32
+	}{
+		{"add.wasm", []uint32{0}},
+		{"fib.wasm", []uint32{0}},
+		{"imports.wasm", []uint32{1}}, // only the defined function, not the 2 imported ones
+		{"local.wasm", []uint32{0, 0, 2}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", tc.file))
+			require.NoError(t, err)
+			m := decodeOrSkip(t, data)
+			require.NotNil(t, m.Function)
+			require.Equal(t, tc.want, m.Function.FuncTypeIdxs)
+		})
+	}
+}
