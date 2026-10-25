@@ -712,3 +712,51 @@ func TestDecodeCodeFixturesMatchFunctions(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeStartContents(t *testing.T) {
+	// Spec 5.5.11: the section holds a single funcidx. Index 0 is a real
+	// start function and must not be confused with an absent section. Whether
+	// the index exists, or has type [] -> [], is checked by the validator.
+	tests := []struct {
+		name string
+		body []byte
+		want uint32
+	}{
+		{"index 0", []byte{0x00}, 0},
+		{"index 1", []byte{0x01}, 1},
+		{"multi-byte index (0x80 0x01 = 128)", []byte{0x80, 0x01}, 128},
+		{"padded index (0x81 0x00 = 1)", []byte{0x81, 0x00}, 1},
+		{"largest index", []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, 4294967295},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secStart, tc.body...)))
+			require.NotNil(t, m.Start, "a present start section must be distinguishable from none")
+			require.Equal(t, tc.want, m.Start.FuncIdx)
+		})
+	}
+
+	t.Run("absent section", func(t *testing.T) {
+		m := decodeOrSkip(t, mod(typeSec()))
+		require.Nil(t, m.Start)
+	})
+}
+
+// `wasm-objdump -x`: only local.wasm has a start section (function 1); the
+// other fixtures have none.
+func TestDecodeStartFixtures(t *testing.T) {
+	for _, path := range fixturePaths(t) {
+		name := filepath.Base(path)
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			m := decodeOrSkip(t, data)
+			if name == "local.wasm" {
+				require.NotNil(t, m.Start)
+				require.Equal(t, uint32(1), m.Start.FuncIdx)
+				return
+			}
+			require.Nil(t, m.Start)
+		})
+	}
+}

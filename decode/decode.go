@@ -489,7 +489,9 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 
 	var localCount int64
 	for _, code := range codes {
-		localCount += int64(len(code.Locals))
+		for _, local := range code.Locals {
+			localCount += int64(local.Count)
+		}
 	}
 
 	if localCount > 0xffffffff {
