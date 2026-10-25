@@ -541,3 +541,174 @@ func TestDecodeExportFixtures(t *testing.T) {
 		})
 	}
 }
+
+func opcodesOf(e *wasm.Expr) []wasm.Opcode {
+	out := make([]wasm.Opcode, len(e.Instructions))
+	for i, in := range e.Instructions {
+		out[i] = in.Opcode
+	}
+	return out
+}
+
+func TestDecodeCodeLocals(t *testing.T) {
+	// Spec 5.5.13: locals are run-length groups, vec(n:u32 t:valtype). The
+	// decoder keeps the groups as written; expanding them is the
+	// interpreter's business (a group may declare up to 2^32-1 locals).
+	tests := []struct {
+		name   string
+		locals []byte
+		want   []wasm.Local
+	}{
+		{"no locals", []byte{0x00}, nil},
+		{"one group", []byte{0x01, 0x03, typeI32}, []wasm.Local{{Count: 3, Type: wasm.I32}}},
+		{"groups stay separate even for the same type", []byte{0x03, 0x01, typeI32, 0x01, typeI32, 0x02, typeF64},
+			[]wasm.Local{{Count: 1, Type: wasm.I32}, {Count: 1, Type: wasm.I32}, {Count: 2, Type: wasm.F64}}},
+		{"every value type", []byte{0x04, 0x01, typeI32, 0x01, typeI64, 0x01, typeF32, 0x01, typeF64},
+			[]wasm.Local{{Count: 1, Type: wasm.I32}, {Count: 1, Type: wasm.I64}, {Count: 1, Type: wasm.F32}, {Count: 1, Type: wasm.F64}}},
+		{"group of count 0 is kept", []byte{0x01, 0x00, typeI32}, []wasm.Local{{Count: 0, Type: wasm.I32}}},
+		{"multi-byte count (0x80 0x01 = 128)", []byte{0x01, 0x80, 0x01, typeI64}, []wasm.Local{{Count: 128, Type: wasm.I64}}},
+		{"one group of 2^32-1 locals is within the limit", []byte{0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, typeI32}, []wasm.Local{{Count: 4294967295, Type: wasm.I32}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(typeSec(), funcSec(), codeSec(tc.locals, opEnd)))
+			require.NotNil(t, m.Code)
+			require.Len(t, m.Code.Codes, 1)
+			got := m.Code.Codes[0].Locals
+			require.True(t, slices.Equal(tc.want, got), "want %v, got %v", tc.want, got)
+		})
+	}
+}
+
+func TestDecodeCodeBodies(t *testing.T) {
+	// Bodies are decoded into instructions, including the final end and any
+	// nested ends. Immediates use the dynamic types the decoder chose.
+	inst := func(op wasm.Opcode, imm any) wasm.Inst { return wasm.Inst{Opcode: op, Immediate: imm} }
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.Inst
+	}{
+		{"empty body", []byte{opEnd}, []wasm.Inst{inst(wasm.End, nil)}},
+		{"nop and unreachable", []byte{0x01, 0x00, opEnd}, []wasm.Inst{inst(wasm.Nop, nil), inst(wasm.Unreachable, nil), inst(wasm.End, nil)}},
+		{"i32.const then drop", []byte{0x41, 0x07, 0x1A, opEnd}, []wasm.Inst{inst(wasm.I32Const, int32(7)), inst(wasm.Drop, nil), inst(wasm.End, nil)}},
+		{"i64.const -1", []byte{0x42, 0x7F, 0x1A, opEnd}, []wasm.Inst{inst(wasm.I64Const, int64(-1)), inst(wasm.Drop, nil), inst(wasm.End, nil)}},
+		{"f32.const 1.0 bytes", []byte{0x43, 0x00, 0x00, 0x80, 0x3F, 0x1A, opEnd}, []wasm.Inst{inst(wasm.F32Const, [4]byte{0x00, 0x00, 0x80, 0x3F}), inst(wasm.Drop, nil), inst(wasm.End, nil)}},
+		{"f64.const payload all 0x0B", []byte{0x44, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x1A, opEnd}, []wasm.Inst{inst(wasm.F64Const, [8]byte{0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B}), inst(wasm.Drop, nil), inst(wasm.End, nil)}},
+		{"local.get, local.set, local.tee", []byte{0x20, 0x03, 0x21, 0x04, 0x22, 0x80, 0x01, opEnd},
+			[]wasm.Inst{inst(wasm.LocalGet, uint32(3)), inst(wasm.LocalSet, uint32(4)), inst(wasm.LocalTee, uint32(128)), inst(wasm.End, nil)}},
+		{"global.get and global.set", []byte{0x23, 0x01, 0x24, 0x02, opEnd},
+			[]wasm.Inst{inst(wasm.GlobalGet, uint32(1)), inst(wasm.GlobalSet, uint32(2)), inst(wasm.End, nil)}},
+		{"call", []byte{0x10, 0x02, opEnd}, []wasm.Inst{inst(wasm.Call, uint32(2)), inst(wasm.End, nil)}},
+		{"call_indirect keeps the type index, drops the reserved byte", []byte{0x11, 0x01, 0x00, opEnd}, []wasm.Inst{inst(wasm.CallIndirect, uint32(1)), inst(wasm.End, nil)}},
+		{"return and select", []byte{0x1B, 0x0F, opEnd}, []wasm.Inst{inst(wasm.Select, nil), inst(wasm.Return, nil), inst(wasm.End, nil)}},
+		{"i32.load align 2 offset 128", []byte{0x28, 0x02, 0x80, 0x01, opEnd}, []wasm.Inst{inst(wasm.I32Load, wasm.MemArg{Align: 2, Offset: 128}), inst(wasm.End, nil)}},
+		{"i64.store32 align 0 offset 0", []byte{0x3E, 0x00, 0x00, opEnd}, []wasm.Inst{inst(wasm.I64Store32, wasm.MemArg{}), inst(wasm.End, nil)}},
+		{"memory.size and memory.grow have no immediate", []byte{0x3F, 0x00, 0x40, 0x00, opEnd}, []wasm.Inst{inst(wasm.MemSize, nil), inst(wasm.MemGrow, nil), inst(wasm.End, nil)}},
+		{"br, br_if", []byte{0x0C, 0x01, 0x0D, 0x02, opEnd}, []wasm.Inst{inst(wasm.Br, uint32(1)), inst(wasm.BrIf, uint32(2)), inst(wasm.End, nil)}},
+		{"br_table with labels and a default", []byte{0x0E, 0x02, 0x00, 0x01, 0x02, opEnd},
+			[]wasm.Inst{inst(wasm.BrTable, wasm.BranchTable{Indices: []uint32{0, 1}, Default: 2}), inst(wasm.End, nil)}},
+		{"br_table with only a default", []byte{0x0E, 0x00, 0x05, opEnd},
+			[]wasm.Inst{inst(wasm.BrTable, wasm.BranchTable{Indices: []uint32{}, Default: 5}), inst(wasm.End, nil)}},
+		{"numeric opcodes (i32.add, f64.reinterpret_i64)", []byte{0x6A, 0xBF, opEnd}, []wasm.Inst{inst(0x6A, nil), inst(0xBF, nil), inst(wasm.End, nil)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, bodyMod(tc.body...))
+			require.Len(t, m.Code.Codes, 1)
+			got := m.Code.Codes[0].Body
+			require.NotNil(t, got)
+			// The immediate of a "no vector" br_table may be nil or empty.
+			require.Len(t, got.Instructions, len(tc.want))
+			for i, want := range tc.want {
+				if bt, ok := want.Immediate.(wasm.BranchTable); ok {
+					gotBT, isBT := got.Instructions[i].Immediate.(wasm.BranchTable)
+					require.True(t, isBT, "instruction %d immediate is %T", i, got.Instructions[i].Immediate)
+					require.True(t, slices.Equal(bt.Indices, gotBT.Indices))
+					require.Equal(t, bt.Default, gotBT.Default)
+					continue
+				}
+				require.Equal(t, want, got.Instructions[i], "instruction %d", i)
+			}
+		})
+	}
+}
+
+func TestDecodeCodeStructuredControl(t *testing.T) {
+	// Nesting is kept flat: block/loop/if, else and every end appear in order.
+	// Block types are not asserted here; the decoder may store them however
+	// it likes.
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.Opcode
+	}{
+		{"empty block", []byte{0x02, 0x40, opEnd, opEnd}, []wasm.Opcode{wasm.Block, wasm.End, wasm.End}},
+		{"block with a result type", []byte{0x02, typeI32, 0x41, 0x00, opEnd, 0x1A, opEnd}, []wasm.Opcode{wasm.Block, wasm.I32Const, wasm.End, wasm.Drop, wasm.End}},
+		{"loop with a branch", []byte{0x03, 0x40, 0x0C, 0x00, opEnd, opEnd}, []wasm.Opcode{wasm.Loop, wasm.Br, wasm.End, wasm.End}},
+		{"if without else", []byte{0x41, 0x01, 0x04, 0x40, 0x01, opEnd, opEnd}, []wasm.Opcode{wasm.I32Const, wasm.If, wasm.Nop, wasm.End, wasm.End}},
+		{"if with else", []byte{0x41, 0x01, 0x04, 0x40, 0x01, 0x05, 0x01, opEnd, opEnd}, []wasm.Opcode{wasm.I32Const, wasm.If, wasm.Nop, wasm.Else, wasm.Nop, wasm.End, wasm.End}},
+		{"nested block, loop, block", []byte{0x02, 0x40, 0x03, 0x40, 0x02, 0x40, opEnd, opEnd, opEnd, opEnd}, []wasm.Opcode{wasm.Block, wasm.Loop, wasm.Block, wasm.End, wasm.End, wasm.End, wasm.End}},
+		{"an end after a nested end closes the function, not the block", []byte{0x02, 0x40, opEnd, 0x01, opEnd}, []wasm.Opcode{wasm.Block, wasm.End, wasm.Nop, wasm.End}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, bodyMod(tc.body...))
+			require.Len(t, m.Code.Codes, 1)
+			require.Equal(t, tc.want, opcodesOf(m.Code.Codes[0].Body))
+		})
+	}
+}
+
+func TestDecodeCodeMultipleFunctions(t *testing.T) {
+	// Two functions with different locals and bodies, in order.
+	f1 := []byte{0x01, 0x01, typeI32, 0x41, 0x01, 0x1A, opEnd}
+	f2 := []byte{0x00, 0x01, opEnd}
+	code := sec(secCode, bs([]byte{0x02, byte(len(f1))}, f1, []byte{byte(len(f2))}, f2)...)
+	in := mod(typeSec(), sec(secFunc, 0x02, 0x00, 0x00), code)
+	m := decodeOrSkip(t, in)
+	require.Len(t, m.Code.Codes, 2)
+	require.Equal(t, []wasm.Local{{Count: 1, Type: wasm.I32}}, m.Code.Codes[0].Locals)
+	require.Equal(t, []wasm.Opcode{wasm.I32Const, wasm.Drop, wasm.End}, opcodesOf(m.Code.Codes[0].Body))
+	require.Empty(t, m.Code.Codes[1].Locals)
+	require.Equal(t, []wasm.Opcode{wasm.Nop, wasm.End}, opcodesOf(m.Code.Codes[1].Body))
+}
+
+// `wasm-objdump -d` for add.wasm: local.get 0; local.get 1; i32.add; end.
+func TestDecodeCodeFixtureAdd(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "add.wasm"))
+	require.NoError(t, err)
+	m := decodeOrSkip(t, data)
+	require.Len(t, m.Code.Codes, 1)
+	require.Equal(t, []wasm.Inst{
+		{Opcode: wasm.LocalGet, Immediate: uint32(0)},
+		{Opcode: wasm.LocalGet, Immediate: uint32(1)},
+		{Opcode: 0x6A},
+		{Opcode: wasm.End},
+	}, m.Code.Codes[0].Body.Instructions)
+}
+
+// Every fixture must decode with one code entry per function-section entry,
+// and its bodies must end with end.
+func TestDecodeCodeFixturesMatchFunctions(t *testing.T) {
+	for _, path := range fixturePaths(t) {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			m := decodeOrSkip(t, data)
+			var nFuncs, nCode int
+			if m.Function != nil {
+				nFuncs = len(m.Function.FuncTypeIdxs)
+			}
+			if m.Code != nil {
+				nCode = len(m.Code.Codes)
+				for i, c := range m.Code.Codes {
+					require.NotNil(t, c.Body, "body %d", i)
+					require.NotEmpty(t, c.Body.Instructions, "body %d", i)
+					require.Equal(t, wasm.End, c.Body.Instructions[len(c.Body.Instructions)-1].Opcode, "body %d", i)
+				}
+			}
+			require.Equal(t, nFuncs, nCode)
+		})
+	}
+}
