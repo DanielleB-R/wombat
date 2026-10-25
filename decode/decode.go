@@ -5,31 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 
 	"github.com/DanielleB-R/wombat/wasm"
 )
+
+var wasmHeader = []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}
 
 // ReadSections reads the sections of a WASM module out of a reader without decoding the sections
 func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 	var module wasm.RawModule
 
-	magicNumberBuffer := make([]byte, 4)
-	n, err := reader.Read(magicNumberBuffer)
-	if n != 4 || err != nil {
-		return nil, errors.New("file too short")
-	}
-	if !slices.Equal(magicNumberBuffer, []byte{0x00, 0x61, 0x73, 0x6d}) {
-		return nil, errors.New("magic number mismatch")
-	}
-
-	versionBuffer := make([]byte, 4)
-	n, err = reader.Read(versionBuffer)
-	if n != 4 || err != nil {
-		return nil, errors.New("file too short")
-	}
-	if !slices.Equal(versionBuffer, []byte{0x01, 0x00, 0x00, 0x00}) {
-		return nil, errors.New("version mismatch")
+	for _, value := range wasmHeader {
+		err := expectByte(reader, value)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	lastID := byte(0)
@@ -69,6 +59,10 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		if id == 0 {
+			_, err := readName(bytes.NewReader(contents))
+			if err != nil {
+				return nil, err
+			}
 			continue
 		}
 
@@ -86,9 +80,15 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 		case 1:
 			typeSection, err := decodeTypeSection(rawSection.Contents)
 			if err != nil {
-				return nil, fmt.Errorf("error decoding type section, %w", err)
+				return nil, fmt.Errorf("error decoding type section: %w", err)
 			}
 			module.Type = typeSection
+		case 2:
+			importSection, err := decodeImportSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding input section: %w", err)
+			}
+			module.Import = importSection
 			// default:
 			// 	return nil, errors.New("unknown section type")
 		}
@@ -108,12 +108,9 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 	functionTypes := make([]wasm.FunctionType, length)
 
 	for i := range length {
-		prefix, err := reader.ReadByte()
+		err := expectByte(reader, 0x60)
 		if err != nil {
 			return nil, err
-		}
-		if prefix != 0x60 {
-			return nil, errors.New("invalid function type")
 		}
 
 		paramsLength, err := readLength(reader)
@@ -124,13 +121,9 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 		parameters := make([]wasm.ValType, paramsLength)
 
 		for j := range paramsLength {
-			input, err := reader.ReadByte()
+			valType, err := readValueType(reader)
 			if err != nil {
 				return nil, err
-			}
-			valType := wasm.ValType(input)
-			if !valType.IsValid() {
-				return nil, errors.New("invalid value type")
 			}
 			parameters[j] = valType
 		}
@@ -143,13 +136,9 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 		results := make([]wasm.ValType, resultsLength)
 
 		for j := range resultsLength {
-			input, err := reader.ReadByte()
+			valType, err := readValueType(reader)
 			if err != nil {
 				return nil, err
-			}
-			valType := wasm.ValType(input)
-			if !valType.IsValid() {
-				return nil, errors.New("invalid value type")
 			}
 			results[j] = valType
 		}
@@ -161,20 +150,86 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 	}
 
 	if reader.Len() != 0 {
-		return nil, errors.New("contents didn't fill section")
+		return nil, UnderfullSection
 	}
 
 	return &wasm.TypeSection{FunctionTypes: functionTypes}, nil
 }
 
-func readLength(reader *bytes.Reader) (uint32, error) {
-	length, err := ReadLEB128U32(reader)
+func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
 	if err != nil {
-		return 0, fmt.Errorf("error reading length: %w", err)
+		return nil, err
 	}
 
-	if length > uint32(reader.Len()) {
-		return 0, errors.New("length too long")
+	imports := make([]wasm.Import, length)
+
+	for i := range length {
+		module, err := readName(reader)
+		if err != nil {
+			return nil, err
+		}
+		imports[i].Module = module
+
+		name, err := readName(reader)
+		if err != nil {
+			return nil, err
+		}
+		imports[i].Name = name
+
+		kind, err := reader.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		extKind := wasm.ExternKind(kind)
+		if !extKind.IsValid() {
+			return nil, errors.New("invalid import kind")
+		}
+
+		imports[i].Desc.Kind = extKind
+
+		switch extKind {
+		case wasm.FuncKind:
+			idx, err := ReadLEB128U32(reader)
+			if err != nil {
+				return nil, err
+			}
+			imports[i].Desc.FuncIdx = idx
+		case wasm.TableKind:
+			err := expectByte(reader, 0x70)
+			if err != nil {
+				return nil, err
+			}
+			limits, err := readLimits(reader)
+			if err != nil {
+				return nil, err
+			}
+			imports[i].Desc.TableLimits = limits
+		case wasm.MemKind:
+			limits, err := readLimits(reader)
+			if err != nil {
+				return nil, err
+			}
+			imports[i].Desc.MemLimits = limits
+		case wasm.GlobalKind:
+			valType, err := readValueType(reader)
+			if err != nil {
+				return nil, err
+			}
+			imports[i].Desc.GlobalType.ValType = valType
+			mutable, err := readBool(reader)
+			if err != nil {
+				return nil, err
+			}
+			imports[i].Desc.GlobalType.Mutable = mutable
+		}
 	}
-	return length, nil
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.ImportSection{Imports: imports}, nil
 }
