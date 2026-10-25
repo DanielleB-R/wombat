@@ -464,3 +464,80 @@ func TestDecodeGlobalFixture(t *testing.T) {
 		},
 	}, m.Global.Definitions)
 }
+
+func TestDecodeExportContents(t *testing.T) {
+	// Spec 5.5.10: vec(name exportdesc), exportdesc = kind byte then an index
+	// (0x00 funcidx, 0x01 tableidx, 0x02 memidx, 0x03 globalidx). Duplicate
+	// names and out-of-range indices are validation errors, not decoding ones.
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.Export
+	}{
+		{"function", []byte{0x01, 0x01, 'a', 0x00, 0x03}, []wasm.Export{{Name: "a", Kind: wasm.FuncKind, Index: 3}}},
+		{"table", []byte{0x01, 0x01, 'a', 0x01, 0x00}, []wasm.Export{{Name: "a", Kind: wasm.TableKind}}},
+		{"memory", []byte{0x01, 0x01, 'a', 0x02, 0x00}, []wasm.Export{{Name: "a", Kind: wasm.MemKind}}},
+		{"global", []byte{0x01, 0x01, 'a', 0x03, 0x07}, []wasm.Export{{Name: "a", Kind: wasm.GlobalKind, Index: 7}}},
+		{"multi-byte index (0x80 0x01 = 128)", []byte{0x01, 0x01, 'a', 0x00, 0x80, 0x01}, []wasm.Export{{Name: "a", Kind: wasm.FuncKind, Index: 128}}},
+		{"largest index", []byte{0x01, 0x01, 'a', 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, []wasm.Export{{Name: "a", Kind: wasm.FuncKind, Index: 4294967295}}},
+		{"empty name", []byte{0x01, 0x00, 0x00, 0x00}, []wasm.Export{{Name: "", Kind: wasm.FuncKind}}},
+		{"multi-byte UTF-8 name", []byte{0x01, 0x03, 0xE2, 0x82, 0xAC, 0x00, 0x00}, []wasm.Export{{Name: "€", Kind: wasm.FuncKind}}},
+		{"name containing a NUL byte", []byte{0x01, 0x03, 'a', 0x00, 'b', 0x00, 0x00}, []wasm.Export{{Name: "a\x00b", Kind: wasm.FuncKind}}},
+		{"duplicate names decode (validator rejects)", []byte{0x02, 0x01, 'a', 0x00, 0x00, 0x01, 'a', 0x00, 0x01}, []wasm.Export{{Name: "a", Kind: wasm.FuncKind, Index: 0}, {Name: "a", Kind: wasm.FuncKind, Index: 1}}},
+		{"same function under two names", []byte{0x02, 0x01, 'a', 0x00, 0x04, 0x01, 'b', 0x00, 0x04}, []wasm.Export{{Name: "a", Kind: wasm.FuncKind, Index: 4}, {Name: "b", Kind: wasm.FuncKind, Index: 4}}},
+		{
+			name: "all four kinds keep their order",
+			body: []byte{0x04, 0x01, 'g', 0x03, 0x02, 0x01, 'm', 0x02, 0x00, 0x01, 't', 0x01, 0x00, 0x01, 'f', 0x00, 0x05},
+			want: []wasm.Export{
+				{Name: "g", Kind: wasm.GlobalKind, Index: 2},
+				{Name: "m", Kind: wasm.MemKind},
+				{Name: "t", Kind: wasm.TableKind},
+				{Name: "f", Kind: wasm.FuncKind, Index: 5},
+			},
+		},
+		{"empty section", []byte{0x00}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secExport, tc.body...)))
+			if len(tc.want) == 0 {
+				require.True(t, m.Export == nil || len(m.Export.Exports) == 0)
+				return
+			}
+			require.NotNil(t, m.Export)
+			require.Equal(t, tc.want, m.Export.Exports)
+		})
+	}
+}
+
+// `wasm-objdump -x` for each fixture's Export section. Function indices count
+// imports first, so imports.wasm (two imported functions) exports its one
+// defined function as index 2.
+func TestDecodeExportFixtures(t *testing.T) {
+	tests := []struct {
+		file string
+		want []wasm.Export
+	}{
+		{"add.wasm", []wasm.Export{{Name: "add", Kind: wasm.FuncKind, Index: 0}}},
+		{"fib.wasm", []wasm.Export{{Name: "fib", Kind: wasm.FuncKind, Index: 0}}},
+		{"memory.wasm", []wasm.Export{{Name: "memory", Kind: wasm.MemKind, Index: 0}}},
+		{"imports.wasm", []wasm.Export{{Name: "go", Kind: wasm.FuncKind, Index: 2}}},
+		{"local.wasm", []wasm.Export{
+			{Name: "call_it", Kind: wasm.FuncKind, Index: 2},
+			{Name: "helper", Kind: wasm.FuncKind, Index: 0},
+			{Name: "counter", Kind: wasm.GlobalKind, Index: 0},
+			{Name: "memory", Kind: wasm.MemKind, Index: 0},
+			{Name: "table", Kind: wasm.TableKind, Index: 0},
+			{Name: "euro_€", Kind: wasm.FuncKind, Index: 0},
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", tc.file))
+			require.NoError(t, err)
+			m := decodeOrSkip(t, data)
+			require.NotNil(t, m.Export)
+			require.Equal(t, tc.want, m.Export.Exports)
+		})
+	}
+}
