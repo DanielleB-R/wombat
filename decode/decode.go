@@ -524,6 +524,16 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 			locals[j].Type = valType
 		}
 
+		var localCount int64
+
+		for _, local := range locals {
+			localCount += int64(local.Count)
+		}
+
+		if localCount > 0xffffffff {
+			return nil, TooManyLocals
+		}
+
 		codes[i].Locals = locals
 
 		expr, err := readExpr(funcReader)
@@ -535,17 +545,6 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		if funcReader.Len() > 0 {
 			return nil, UnderfullSection
 		}
-	}
-
-	var localCount int64
-	for _, code := range codes {
-		for _, local := range code.Locals {
-			localCount += int64(local.Count)
-		}
-	}
-
-	if localCount > 0xffffffff {
-		return nil, TooManyLocals
 	}
 
 	if reader.Len() > 0 {
