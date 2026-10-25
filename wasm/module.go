@@ -1,15 +1,18 @@
 package wasm
 
+// RawModule contains non-decoded sections of the WASM file
 type RawModule struct {
 	Sections []RawSection
 }
 
+// RawSection contains one non-decoded section of the WASM file
 type RawSection struct {
-	Id       byte
+	ID       byte
 	Length   uint32
 	Contents []byte
 }
 
+// Module contains a fully decoded WASM module
 type Module struct {
 	Type     *TypeSection
 	Import   *ImportSection
@@ -24,6 +27,7 @@ type Module struct {
 	Data     *DataSection
 }
 
+// ValType represents the type of a value
 type ValType byte
 
 const (

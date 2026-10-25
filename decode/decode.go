@@ -10,6 +10,7 @@ import (
 	"github.com/DanielleB-R/wombat/wasm"
 )
 
+// ReadSections reads the sections of a WASM module out of a reader without decoding the sections
 func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 	var module wasm.RawModule
 
@@ -31,7 +32,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		return nil, errors.New("version mismatch")
 	}
 
-	lastId := byte(0)
+	lastID := byte(0)
 
 	for reader.Len() > 0 {
 		id, err := reader.ReadByte()
@@ -39,13 +40,15 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 			return nil, fmt.Errorf("error reading section id: %w", err)
 		}
 
-		if id != 0 && id <= lastId {
+		if id != 0 && id <= lastID {
 			return nil, errors.New("section out of order")
 		}
 		if id > 11 {
 			return nil, errors.New("unknown section type")
 		}
-		lastId = id
+		if id != 0 {
+			lastID = id
+		}
 
 		length, err := ReadLEB128U32(reader)
 		if err != nil {
@@ -61,7 +64,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		if n != int(length) {
 			return nil, errors.New("contents unavailable")
 		}
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("error reading section contents, %w", err)
 		}
 
@@ -69,7 +72,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 			continue
 		}
 
-		module.Sections = append(module.Sections, wasm.RawSection{Id: id, Length: length, Contents: contents})
+		module.Sections = append(module.Sections, wasm.RawSection{ID: id, Length: length, Contents: contents})
 	}
 
 	return &module, nil
@@ -79,7 +82,7 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 	var module wasm.Module
 
 	for _, rawSection := range raw.Sections {
-		switch rawSection.Id {
+		switch rawSection.ID {
 		case 1:
 			typeSection, err := decodeTypeSection(rawSection.Contents)
 			if err != nil {
@@ -164,13 +167,13 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 	return &wasm.TypeSection{FunctionTypes: functionTypes}, nil
 }
 
-func readLength(reader *bytes.Reader) (int32, error) {
-	length, err := ReadLEB128I32(reader)
+func readLength(reader *bytes.Reader) (uint32, error) {
+	length, err := ReadLEB128U32(reader)
 	if err != nil {
 		return 0, fmt.Errorf("error reading length: %w", err)
 	}
 
-	if length > int32(reader.Len()) {
+	if length > uint32(reader.Len()) {
 		return 0, errors.New("length too long")
 	}
 	return length, nil

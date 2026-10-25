@@ -47,13 +47,34 @@ func bs(parts ...[]byte) []byte {
 	return out
 }
 
-// sec frames body as a section. Only valid for bodies under 128 bytes, which
-// keeps the size a single-byte LEB128 and every test readable.
-func sec(id byte, body ...byte) []byte {
-	if len(body) >= 0x80 {
-		panic("sec: body too large for a one-byte size")
+// uleb is a minimal unsigned LEB128 encoder (spec 5.2.2), kept here so the
+// fixtures do not depend on the decoder under test.
+func uleb(n uint32) []byte {
+	var out []byte
+	for {
+		b := byte(n & 0x7F)
+		n >>= 7
+		if n == 0 {
+			return append(out, b)
+		}
+		out = append(out, b|0x80)
 	}
-	return bs([]byte{id, byte(len(body))}, body)
+}
+
+// sec frames body as a section: id, LEB128 size, contents.
+func sec(id byte, body ...byte) []byte {
+	return bs([]byte{id}, uleb(uint32(len(body))), body)
+}
+
+// typeSecN is a type section declaring n copies of () -> (). Its vector count
+// is the minimal LEB128 of n, so counts of 64 and above exercise the byte
+// values (0x40-0x7F, then multi-byte) where a signed read goes wrong.
+func typeSecN(n int) []byte {
+	body := uleb(uint32(n))
+	for range n {
+		body = append(body, typeFunc, 0x00, 0x00)
+	}
+	return sec(secType, body...)
 }
 
 // mod is a module made of the header followed by raw sections.
@@ -92,6 +113,10 @@ func validCases() []decodeCase {
 		{"empty function section matches an absent code section", mod(sec(secFunc, 0x00))},
 		{"function type () -> ()", mod(typeSec())},
 		{"function type with params and result", mod(sec(secType, 0x01, typeFunc, 0x02, typeI32, typeI64, 0x01, typeF32))},
+		{"63 function types (largest count below the s7 sign bit)", mod(typeSecN(63))},
+		{"64 function types (count byte 0x40 is u32 64, not s32 -64)", mod(typeSecN(64))},
+		{"127 function types (count byte 0x7F is u32 127, not s32 -1)", mod(typeSecN(127))},
+		{"128 function types (two-byte count)", mod(typeSecN(128))},
 		{"function type with f64", mod(sec(secType, 0x01, typeFunc, 0x01, typeF64, 0x00))},
 		{"padded section size (0x84 0x00 == 4)", mod([]byte{secType, 0x84, 0x00, 0x01, typeFunc, 0x00, 0x00})},
 		{"import func", mod(typeSec(), sec(secImport, 0x01, 0x01, 'a', 0x01, 'b', 0x00, 0x00))},
@@ -211,6 +236,8 @@ func malformedCases() []decodeCase {
 		// Ordering and uniqueness, 5.5.2.
 		{"duplicate type section", mod(typeSec(), typeSec())},
 		{"duplicate memory section", mod(sec(secMemory, 0x00), sec(secMemory, 0x00))},
+		{"duplicate type section with a custom section between", mod(typeSec(), sec(secCustom, 0x01, 'x'), typeSec())},
+		{"table section after memory section with a custom section between", mod(sec(secMemory, 0x00), sec(secCustom, 0x01, 'x'), sec(secTable, 0x00))},
 		{"function section before type section", mod(sec(secFunc, 0x00), typeSec())},
 		{"memory section before table section", mod(sec(secMemory, 0x00), sec(secTable, 0x00))},
 		{"global section before memory section", mod(sec(secGlobal, 0x00), sec(secMemory, 0x00))},
