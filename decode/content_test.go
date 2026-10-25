@@ -193,3 +193,41 @@ func TestDecodeNoImportSection(t *testing.T) {
 	m := decodeOrSkip(t, mod(typeSec()))
 	require.Empty(t, importsOf(m))
 }
+
+func TestDecodeTableContents(t *testing.T) {
+	// Spec 5.3.5: a table type is the element type 0x70 (funcref) followed by
+	// limits, and 5.5.6 makes the section a vector of them. A second table is
+	// a validation error in 1.0, not a decoding one, so it must decode.
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.Limits
+	}{
+		{"min only", []byte{0x01, elemFuncref, 0x00, 0x03}, []wasm.Limits{{Min: 3}}},
+		{"min and max", []byte{0x01, elemFuncref, 0x01, 0x02, 0x09}, []wasm.Limits{{HasMax: true, Min: 2, Max: 9}}},
+		{"min 0", []byte{0x01, elemFuncref, 0x00, 0x00}, []wasm.Limits{{}}},
+		{"multi-byte limits", []byte{0x01, elemFuncref, 0x01, 0x80, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, []wasm.Limits{{HasMax: true, Min: 128, Max: 4294967295}}},
+		{"two tables decode (validator rejects)", []byte{0x02, elemFuncref, 0x00, 0x01, elemFuncref, 0x01, 0x04, 0x05}, []wasm.Limits{{Min: 1}, {HasMax: true, Min: 4, Max: 5}}},
+		{"empty section", []byte{0x00}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secTable, tc.body...)))
+			if len(tc.want) == 0 {
+				require.True(t, m.Table == nil || len(m.Table.Tables) == 0)
+				return
+			}
+			require.NotNil(t, m.Table)
+			require.Equal(t, tc.want, m.Table.Tables)
+		})
+	}
+}
+
+// testdata/wasm/local.wasm: `wasm-objdump -x` says Table[1]: funcref initial=2.
+func TestDecodeTableFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "local.wasm"))
+	require.NoError(t, err)
+	m := decodeOrSkip(t, data)
+	require.NotNil(t, m.Table)
+	require.Equal(t, []wasm.Limits{{Min: 2}}, m.Table.Tables)
+}
