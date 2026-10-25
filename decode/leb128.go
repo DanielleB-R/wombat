@@ -2,6 +2,7 @@ package decode
 
 import (
 	"bytes"
+	"fmt"
 )
 
 // LEB128Error is the error type for the LEB128 code
@@ -9,48 +10,45 @@ type LEB128Error byte
 
 // These are the possible error values
 const (
-	IncompleteNumber LEB128Error = iota
-	NumberTooLarge
-	UnusableBits
+	ErrIncompleteNumber LEB128Error = iota
+	ErrNumberTooLarge
+	ErrUnusableBits
 )
 
 func (l LEB128Error) Error() string {
 	switch l {
-	case IncompleteNumber:
+	case ErrIncompleteNumber:
 		return "incomplete number"
-	case NumberTooLarge:
+	case ErrNumberTooLarge:
 		return "number too large"
-	case UnusableBits:
+	case ErrUnusableBits:
 		return "unusable bits"
 	default:
-		panic("bad error")
+		return fmt.Sprintf("unknown error %d", l)
 	}
 }
 
 // ReadLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader
 func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
 	var result uint32
-	bytes := 0
+	n := 0
 
 	for {
-		if reader.Len() == 0 {
-			return 0, IncompleteNumber
-		}
-		if bytes >= 5 {
-			return 0, NumberTooLarge
+		if n >= 5 {
+			return 0, ErrNumberTooLarge
 		}
 		thisByte, err := reader.ReadByte()
-		if err != nil {
-			panic(err)
+		if err != nil { // ReadByte only returns EOF
+			return 0, ErrIncompleteNumber
 		}
-		if bytes == 4 && thisByte&0x70 != 0 {
-			return 0, UnusableBits
+		if n == 4 && thisByte&0x70 != 0 {
+			return 0, ErrUnusableBits
 		}
-		result |= uint32(thisByte&0x7f) << (bytes * 7)
+		result |= uint32(thisByte&0x7f) << (n * 7)
 		if thisByte&0x80 == 0 {
 			break
 		}
-		bytes++
+		n++
 	}
 
 	return result, nil
@@ -59,34 +57,31 @@ func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
 // ReadLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the reader
 func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 	var result int32
-	bytes := 0
+	n := 0
 	var thisByte byte
 	var err error
 
 	for {
-		if reader.Len() == 0 {
-			return 0, IncompleteNumber
-		}
-		if bytes >= 5 {
-			return 0, NumberTooLarge
+		if n >= 5 {
+			return 0, ErrNumberTooLarge
 		}
 		thisByte, err = reader.ReadByte()
-		if err != nil {
-			panic(err)
+		if err != nil { // ReadByte only returns EOF
+			return 0, ErrIncompleteNumber
 		}
 
-		result |= int32(thisByte&0x7f) << (bytes * 7)
+		result |= int32(thisByte&0x7f) << (n * 7)
 		if thisByte&0x80 == 0 {
 			break
 		}
-		bytes++
+		n++
 	}
 
-	if thisByte&0x40 != 0 || (bytes == 4 && thisByte&0x08 != 0) {
-		result |= (^0) << ((bytes + 1) * 7)
+	if thisByte&0x40 != 0 || (n == 4 && thisByte&0x08 != 0) {
+		result |= (^0) << ((n + 1) * 7)
 	}
-	if bytes == 4 && thisByte&0x70 != (thisByte&0x08>>3)*0x70 {
-		return 0, UnusableBits
+	if n == 4 && thisByte&0x70 != (thisByte&0x08>>3)*0x70 {
+		return 0, ErrUnusableBits
 	}
 
 	return result, nil
@@ -95,34 +90,31 @@ func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 // ReadLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the reader
 func ReadLEB128I64(reader *bytes.Reader) (int64, error) {
 	var result int64
-	bytes := 0
+	n := 0
 	var thisByte byte
 	var err error
 
 	for {
-		if reader.Len() == 0 {
-			return 0, IncompleteNumber
-		}
-		if bytes >= 10 {
-			return 0, NumberTooLarge
+		if n >= 10 {
+			return 0, ErrNumberTooLarge
 		}
 		thisByte, err = reader.ReadByte()
-		if err != nil {
-			panic(err)
+		if err != nil { // ReadByte only returns EOF
+			return 0, ErrIncompleteNumber
 		}
 
-		result |= int64(thisByte&0x7f) << (bytes * 7)
+		result |= int64(thisByte&0x7f) << (n * 7)
 		if thisByte&0x80 == 0 {
 			break
 		}
-		bytes++
+		n++
 	}
 
-	if thisByte&0x40 != 0 || (bytes == 9 && thisByte&0x08 != 0) {
-		result |= (^0) << ((bytes + 1) * 7)
+	if thisByte&0x40 != 0 || (n == 9 && thisByte&0x08 != 0) {
+		result |= (^0) << ((n + 1) * 7)
 	}
-	if bytes == 9 && thisByte&0x7e != (thisByte&0x01)*0x7e {
-		return 0, UnusableBits
+	if n == 9 && thisByte&0x7e != (thisByte&0x01)*0x7e {
+		return 0, ErrUnusableBits
 	}
 
 	return result, nil

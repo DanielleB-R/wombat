@@ -9,6 +9,18 @@ import (
 	"github.com/DanielleB-R/wombat/wasm"
 )
 
+// Decode decodes a WASM module from the contents of its file
+func Decode(contents []byte) (*wasm.Module, error) {
+	reader := bytes.NewReader(contents)
+
+	sections, err := ReadSections(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseSections(sections)
+}
+
 var wasmHeader = []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}
 
 // ReadSections reads the sections of a WASM module out of a reader without decoding the sections

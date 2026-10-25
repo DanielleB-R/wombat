@@ -55,12 +55,7 @@ func testDecode(b []byte) error {
 // testDecodeModule is testDecode but also returns the decoded module, for the
 // tests in content_test.go that inspect it.
 func testDecodeModule(b []byte) (*wasm.Module, error) {
-	reader := bytes.NewReader(b)
-	sections, err := ReadSections(reader)
-	if err != nil {
-		return nil, err
-	}
-	return ParseSections(sections)
+	return Decode(b)
 }
 
 // skipIfNotWired skips t when err says the adapter is a stub.
