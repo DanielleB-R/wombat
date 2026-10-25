@@ -9,12 +9,12 @@ import (
 	"github.com/DanielleB-R/wombat/wasm"
 )
 
-// DecodeError is an error type for the decoder
-type DecodeError byte
+// Error is an error type for the decoder
+type Error byte
 
 // Error values for the decoder
 const (
-	FileTooShort DecodeError = iota
+	FileTooShort Error = iota
 	ValueMismatch
 	LengthTooLong
 	NotEnoughBytes
@@ -24,7 +24,7 @@ const (
 	UnexpectedElse
 )
 
-func (d DecodeError) Error() string {
+func (d Error) Error() string {
 	switch d {
 	case FileTooShort:
 		return "file too short"
@@ -323,9 +323,9 @@ func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 		if inst.Opcode == wasm.End {
 			if len(blockStack) == 0 {
 				break
-			} else {
-				blockStack = blockStack[:len(blockStack)-1]
 			}
+
+			blockStack = blockStack[:len(blockStack)-1]
 		}
 		if inst.Opcode == wasm.Block || inst.Opcode == wasm.Loop {
 			blockStack = append(blockStack, false)
