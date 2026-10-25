@@ -125,7 +125,7 @@ func validCases() []decodeCase {
 		{"import immutable global", mod(sec(secImport, 0x01, 0x01, 'a', 0x01, 'b', 0x03, typeI32, 0x00))},
 		{"import with empty names", mod(sec(secImport, 0x01, 0x00, 0x00, 0x03, typeI64, 0x00))},
 		{"import name with 3-byte UTF-8 (euro sign)", mod(sec(secImport, 0x01, 0x03, 0xE2, 0x82, 0xAC, 0x01, 'b', 0x03, typeI32, 0x00))},
-		{"import name with 4-byte UTF-8 (U+1F428)", mod(sec(secImport, 0x01, 0x04, 0xF0, 0x9F, 0xA8, 0x80, 0x01, 'b', 0x03, typeI32, 0x00))},
+		{"import name with 4-byte UTF-8 (U+1F428)", mod(sec(secImport, 0x01, 0x04, 0xF0, 0x9F, 0x90, 0xA8, 0x01, 'b', 0x03, typeI32, 0x00))},
 		{"function section", mod(typeSec(), funcSec(), codeSec([]byte{0x00}, opEnd))},
 		{"table", mod(sec(secTable, 0x01, elemFuncref, 0x00, 0x01))},
 		{"table with max", mod(sec(secTable, 0x01, elemFuncref, 0x01, 0x01, 0x02))},

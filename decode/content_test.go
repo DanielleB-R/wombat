@@ -1,0 +1,195 @@
+package decode
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/DanielleB-R/wombat/wasm"
+)
+
+// These tests check what the decoder produced, not just that it accepted the
+// input. Expected values come from the bytes written in each case (read off
+// the spec grammar) or, for the fixture files, from `wasm-objdump -x`.
+
+func decodeOrSkip(t *testing.T, in []byte) *wasm.Module {
+	t.Helper()
+	m, err := testDecodeModule(in)
+	skipIfNotWired(t, err)
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	return m
+}
+
+func importsOf(m *wasm.Module) []wasm.Import {
+	if m.Import == nil {
+		return nil
+	}
+	return m.Import.Imports
+}
+
+func requireFuncType(t *testing.T, got wasm.FunctionType, params, results []wasm.ValType) {
+	t.Helper()
+	// slices.Equal treats nil and empty as equal; the representation of "no
+	// results" is up to the decoder.
+	require.True(t, slices.Equal(params, got.Parameters), "params: want %v, got %v", params, got.Parameters)
+	require.True(t, slices.Equal(results, got.Results), "results: want %v, got %v", results, got.Results)
+}
+
+func TestDecodeTypeSectionContents(t *testing.T) {
+	// One of each shape: (), (i32 i64) -> f32, (f64) -> (), () -> i32.
+	in := mod(sec(secType, 0x04,
+		typeFunc, 0x00, 0x00,
+		typeFunc, 0x02, typeI32, typeI64, 0x01, typeF32,
+		typeFunc, 0x01, typeF64, 0x00,
+		typeFunc, 0x00, 0x01, typeI32,
+	))
+	m := decodeOrSkip(t, in)
+	require.NotNil(t, m.Type)
+	require.Len(t, m.Type.FunctionTypes, 4)
+	requireFuncType(t, m.Type.FunctionTypes[0], nil, nil)
+	requireFuncType(t, m.Type.FunctionTypes[1], []wasm.ValType{wasm.I32, wasm.I64}, []wasm.ValType{wasm.F32})
+	requireFuncType(t, m.Type.FunctionTypes[2], []wasm.ValType{wasm.F64}, nil)
+	requireFuncType(t, m.Type.FunctionTypes[3], nil, []wasm.ValType{wasm.I32})
+}
+
+func TestDecodeImportContents(t *testing.T) {
+	// Every import kind and the descriptor shapes from spec 5.5.5:
+	//   0x00 typeidx | 0x01 tabletype | 0x02 limits | 0x03 globaltype
+	tests := []struct {
+		name string
+		body []byte // import section body: vec count, then imports
+		want []wasm.Import
+	}{
+		{
+			name: "function, index 5",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x00, 0x05},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 5}}},
+		},
+		{
+			name: "function, multi-byte index (0x80 0x01 = 128)",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x00, 0x80, 0x01},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 128}}},
+		},
+		{
+			name: "table, min only",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x01, elemFuncref, 0x00, 0x03},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.TableKind, TableLimits: wasm.Limits{Min: 3}}}},
+		},
+		{
+			name: "table, min and max",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x01, elemFuncref, 0x01, 0x02, 0x09},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.TableKind, TableLimits: wasm.Limits{HasMax: true, Min: 2, Max: 9}}}},
+		},
+		{
+			name: "memory, min and max",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x02, 0x01, 0x01, 0x02},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{HasMax: true, Min: 1, Max: 2}}}},
+		},
+		{
+			name: "memory, multi-byte limits (65536 pages)",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x02, 0x01, 0x80, 0x80, 0x04, 0x80, 0x80, 0x04},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{HasMax: true, Min: 65536, Max: 65536}}}},
+		},
+		{
+			name: "memory, min 0 with no max",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x02, 0x00, 0x00},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.MemKind}}},
+		},
+		{
+			name: "global, immutable i32",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x03, typeI32, 0x00},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I32}}}},
+		},
+		{
+			name: "global, mutable i64",
+			body: []byte{0x01, 0x01, 'a', 0x01, 'b', 0x03, typeI64, 0x01},
+			want: []wasm.Import{{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I64, Mutable: true}}}},
+		},
+		{
+			name: "global, immutable f32 and f64",
+			body: []byte{0x02, 0x01, 'a', 0x01, 'b', 0x03, typeF32, 0x00, 0x01, 'a', 0x01, 'c', 0x03, typeF64, 0x00},
+			want: []wasm.Import{
+				{Module: "a", Name: "b", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.F32}}},
+				{Module: "a", Name: "c", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.F64}}},
+			},
+		},
+		{
+			name: "empty module and field names",
+			body: []byte{0x01, 0x00, 0x00, 0x00, 0x00},
+			want: []wasm.Import{{Desc: wasm.ImportDesc{Kind: wasm.FuncKind}}},
+		},
+		{
+			name: "multi-byte UTF-8 names (euro sign, koala)",
+			body: []byte{0x01, 0x03, 0xE2, 0x82, 0xAC, 0x04, 0xF0, 0x9F, 0x90, 0xA8, 0x00, 0x00},
+			want: []wasm.Import{{Module: "€", Name: "\U0001F428", Desc: wasm.ImportDesc{Kind: wasm.FuncKind}}},
+		},
+		{
+			name: "several imports keep their order across kinds",
+			body: []byte{
+				0x04,
+				0x01, 'm', 0x01, 'f', 0x00, 0x01,
+				0x01, 'm', 0x01, 'g', 0x02, 0x00, 0x01,
+				0x01, 'm', 0x01, 'h', 0x00, 0x00,
+				0x01, 'n', 0x01, 'f', 0x03, typeI32, 0x00,
+			},
+			want: []wasm.Import{
+				{Module: "m", Name: "f", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 1}},
+				{Module: "m", Name: "g", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{Min: 1}}},
+				{Module: "m", Name: "h", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 0}},
+				{Module: "n", Name: "f", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I32}}},
+			},
+		},
+		{
+			name: "empty section",
+			body: []byte{0x00},
+			want: nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secImport, tc.body...)))
+			got := importsOf(m)
+			// Comparing whole structs also checks that fields belonging to
+			// the other kinds are left at their zero values.
+			if len(tc.want) == 0 {
+				require.Empty(t, got)
+				return
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// testdata/wasm/imports.wasm, as `wasm-objdump -x` describes it:
+//
+//	Type[2]:   (i32, i64) -> f64 ; (i32) -> nil
+//	Import[5]: func sig=1 env.log ; func sig=0 env.conv ;
+//	           memory initial=1 max=4 env.mem ; table funcref initial=2 env.tab ;
+//	           global i32 immutable env.g
+func TestDecodeImportsFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "imports.wasm"))
+	require.NoError(t, err)
+	m := decodeOrSkip(t, data)
+
+	require.NotNil(t, m.Type)
+	require.Len(t, m.Type.FunctionTypes, 2)
+	requireFuncType(t, m.Type.FunctionTypes[0], []wasm.ValType{wasm.I32, wasm.I64}, []wasm.ValType{wasm.F64})
+	requireFuncType(t, m.Type.FunctionTypes[1], []wasm.ValType{wasm.I32}, nil)
+
+	require.Equal(t, []wasm.Import{
+		{Module: "env", Name: "log", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 1}},
+		{Module: "env", Name: "conv", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncIdx: 0}},
+		{Module: "env", Name: "mem", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{HasMax: true, Min: 1, Max: 4}}},
+		{Module: "env", Name: "tab", Desc: wasm.ImportDesc{Kind: wasm.TableKind, TableLimits: wasm.Limits{Min: 2}}},
+		{Module: "env", Name: "g", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I32}}},
+	}, importsOf(m))
+}
+
+func TestDecodeNoImportSection(t *testing.T) {
+	m := decodeOrSkip(t, mod(typeSec()))
+	require.Empty(t, importsOf(m))
+}

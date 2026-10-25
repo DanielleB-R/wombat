@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/DanielleB-R/wombat/wasm"
 )
 
 // This is the only test file that names the implementation. The other tests
@@ -46,13 +48,19 @@ func testReadS64(b []byte) (v int64, n int, err error) {
 // must never panic. Validation errors (type errors, bad indices, limits where
 // min > max, ...) are NOT decode errors; see the validCases in decode_test.go.
 func testDecode(b []byte) error {
+	_, err := testDecodeModule(b)
+	return err
+}
+
+// testDecodeModule is testDecode but also returns the decoded module, for the
+// tests in content_test.go that inspect it.
+func testDecodeModule(b []byte) (*wasm.Module, error) {
 	reader := bytes.NewReader(b)
 	sections, err := ReadSections(reader)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = DecodeSections(sections)
-	return err
+	return DecodeSections(sections)
 }
 
 // skipIfNotWired skips t when err says the adapter is a stub.
