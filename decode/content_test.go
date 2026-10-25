@@ -346,3 +346,121 @@ func TestDecodeFunctionFixtures(t *testing.T) {
 		})
 	}
 }
+
+// Initializers are decoded into wasm.Expr: every instruction up to and
+// including the terminating end. Immediates are whatever the decoder chose to
+// store in Inst.Immediate; the types below (int32, int64, uint32, [4]byte,
+// [8]byte for the raw little-endian float bits) are the ones it uses today.
+func TestDecodeGlobalContents(t *testing.T) {
+	// Spec 5.5.9: vec(globaltype expr), globaltype = valtype mut (0x00 const,
+	// 0x01 var).
+	tests := []struct {
+		name string
+		body []byte
+		want []wasm.GlobalDefinition
+	}{
+		{
+			name: "immutable i32 initialised with i32.const 7",
+			body: []byte{0x01, typeI32, 0x00, 0x41, 0x07, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.I32},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(7)}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "mutable i64 initialised with i64.const -1",
+			body: []byte{0x01, typeI64, 0x01, 0x42, 0x7F, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.I64, Mutable: true},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I64Const, Immediate: int64(-1)}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "i32.const with a multi-byte immediate (0x8B 0x00 = 11)",
+			body: []byte{0x01, typeI32, 0x00, 0x41, 0x8B, 0x00, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.I32},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(11)}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "f32.const 1.0 keeps its little-endian bytes",
+			body: []byte{0x01, typeF32, 0x00, 0x43, 0x00, 0x00, 0x80, 0x3F, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.F32},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.F32Const, Immediate: [4]byte{0x00, 0x00, 0x80, 0x3F}}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "f32.const whose payload is all 0x0B",
+			body: []byte{0x01, typeF32, 0x00, 0x43, 0x0B, 0x0B, 0x0B, 0x0B, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.F32},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.F32Const, Immediate: [4]byte{0x0B, 0x0B, 0x0B, 0x0B}}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "f64.const 1.5 keeps its little-endian bytes",
+			body: []byte{0x01, typeF64, 0x00, 0x44, 0, 0, 0, 0, 0, 0, 0xF8, 0x3F, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.F64},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.F64Const, Immediate: [8]byte{0, 0, 0, 0, 0, 0, 0xF8, 0x3F}}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "global.get reads its index",
+			body: []byte{0x01, typeI32, 0x00, 0x23, 0x05, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.I32},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.GlobalGet, Immediate: uint32(5)}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "global.get with a multi-byte index (0x80 0x01 = 128)",
+			body: []byte{0x01, typeI32, 0x00, 0x23, 0x80, 0x01, opEnd},
+			want: []wasm.GlobalDefinition{{
+				Type: wasm.GlobalType{ValType: wasm.I32},
+				Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.GlobalGet, Immediate: uint32(128)}, {Opcode: wasm.End}}},
+			}},
+		},
+		{
+			name: "several globals keep their order",
+			body: []byte{0x03,
+				typeI32, 0x00, 0x41, 0x01, opEnd,
+				typeI32, 0x01, 0x41, 0x02, opEnd,
+				typeI64, 0x00, 0x42, 0x03, opEnd,
+			},
+			want: []wasm.GlobalDefinition{
+				{Type: wasm.GlobalType{ValType: wasm.I32}, Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(1)}, {Opcode: wasm.End}}}},
+				{Type: wasm.GlobalType{ValType: wasm.I32, Mutable: true}, Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(2)}, {Opcode: wasm.End}}}},
+				{Type: wasm.GlobalType{ValType: wasm.I64}, Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I64Const, Immediate: int64(3)}, {Opcode: wasm.End}}}},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := decodeOrSkip(t, mod(sec(secGlobal, tc.body...)))
+			require.NotNil(t, m.Global)
+			require.Equal(t, tc.want, m.Global.Definitions)
+		})
+	}
+}
+
+// `wasm-objdump -x`: local.wasm has global[0] i32 immutable init i32=42 and
+// global[1] f64 immutable init f64=1.5 (0x3FF8000000000000).
+func TestDecodeGlobalFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "local.wasm"))
+	require.NoError(t, err)
+	m := decodeOrSkip(t, data)
+	require.NotNil(t, m.Global)
+	require.Equal(t, []wasm.GlobalDefinition{
+		{
+			Type: wasm.GlobalType{ValType: wasm.I32},
+			Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(42)}, {Opcode: wasm.End}}},
+		},
+		{
+			Type: wasm.GlobalType{ValType: wasm.F64},
+			Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.F64Const, Immediate: [8]byte{0, 0, 0, 0, 0, 0, 0xF8, 0x3F}}, {Opcode: wasm.End}}},
+		},
+	}, m.Global.Definitions)
+}
