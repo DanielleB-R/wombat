@@ -60,7 +60,7 @@ func testDecodeModule(b []byte) (*wasm.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSections(sections)
+	return ParseSections(sections)
 }
 
 // skipIfNotWired skips t when err says the adapter is a stub.

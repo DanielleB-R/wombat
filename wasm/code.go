@@ -1,16 +1,20 @@
 package wasm
 
+// Expr represents an expression, containing WASM code
 type Expr struct {
 	Instructions []Inst
 }
 
+// Inst represents a single instruction with optional argument
 type Inst struct {
 	Opcode    Opcode
 	Immediate any
 }
 
+// Opcode represents a WASM opcode
 type Opcode byte
 
+// These are the valid opcodes in the current WASM version
 const (
 	Unreachable Opcode = 0x00
 	Nop         Opcode = 0x01
@@ -67,17 +71,20 @@ const (
 	F64Const   Opcode = 0x44
 )
 
+// IsValid checks that the opcode is valid
 func (o Opcode) IsValid() bool {
 	invalid := (o > Else && o < End) || (o > CallIndirect && o < Drop) || (o > Select && o < LocalGet) || (o > GlobalSet && o < I32Load) || (o > 0xbf)
 
 	return !invalid
 }
 
+// MemArg is the argument to a memory instruction
 type MemArg struct {
 	Align  uint32
 	Offset uint32
 }
 
+// BranchTable is the argument to a branch table instruction
 type BranchTable struct {
 	Indices []uint32
 	Default uint32

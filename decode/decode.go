@@ -72,8 +72,8 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 	return &module, nil
 }
 
-// DecodeSections decodes the contents of the module into appropriate data structures
-func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
+// ParseSections decodes the contents of the module into appropriate data structures
+func ParseSections(raw *wasm.RawModule) (*wasm.Module, error) {
 	var module wasm.Module
 
 	for _, rawSection := range raw.Sections {

@@ -235,6 +235,7 @@ func readMemArg(reader *bytes.Reader) (wasm.MemArg, error) {
 
 func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 	// we assume the opcode is valid
+	//nolint:exhaustive // opcodes without an immediate share the default return
 	switch opcode {
 	case wasm.Block, wasm.Loop, wasm.If:
 		blockType, err := reader.ReadByte()
