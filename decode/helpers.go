@@ -14,45 +14,45 @@ type Error byte
 
 // Error values for the decoder
 const (
-	FileTooShort Error = iota
-	ValueMismatch
-	LengthTooLong
-	NotEnoughBytes
-	BadUTF8
-	BadEnum
-	UnderfullSection
-	UnexpectedElse
-	SectionOutOfOrder
-	UnknownSectionType
-	FunctionCodeMismatch
-	TooManyLocals
+	ErrFileTooShort Error = iota
+	ErrValueMismatch
+	ErrLengthTooLong
+	ErrNotEnoughBytes
+	ErrBadUTF8
+	ErrBadEnum
+	ErrSectionMismatch
+	ErrUnexpectedElse
+	ErrSectionOutOfOrder
+	ErrUnknownSectionType
+	ErrFunctionCodeMismatch
+	ErrTooManyLocals
 )
 
 func (d Error) Error() string {
 	switch d {
-	case FileTooShort:
+	case ErrFileTooShort:
 		return "file too short"
-	case ValueMismatch:
+	case ErrValueMismatch:
 		return "fixed byte mismatch"
-	case LengthTooLong:
+	case ErrLengthTooLong:
 		return "length too long"
-	case NotEnoughBytes:
+	case ErrNotEnoughBytes:
 		return "not enough bytes"
-	case BadUTF8:
+	case ErrBadUTF8:
 		return "invalid UTF-8 string"
-	case BadEnum:
+	case ErrBadEnum:
 		return "invalid enumerated value"
-	case UnderfullSection:
-		return "contents didn't fill section"
-	case UnexpectedElse:
+	case ErrSectionMismatch:
+		return "section size mismatch"
+	case ErrUnexpectedElse:
 		return "invalid else instruction"
-	case SectionOutOfOrder:
+	case ErrSectionOutOfOrder:
 		return "section out of order"
-	case UnknownSectionType:
+	case ErrUnknownSectionType:
 		return "unknown section type"
-	case FunctionCodeMismatch:
+	case ErrFunctionCodeMismatch:
 		return "function and code length must match"
-	case TooManyLocals:
+	case ErrTooManyLocals:
 		return "too many locals"
 	default:
 		panic("invalid value")
@@ -65,7 +65,7 @@ func expectByte(reader *bytes.Reader, value byte) error {
 		return err
 	}
 	if found != value {
-		return ValueMismatch
+		return ErrValueMismatch
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ func readLength(reader *bytes.Reader) (uint32, error) {
 	}
 
 	if length > uint32(reader.Len()) {
-		return 0, LengthTooLong
+		return 0, ErrLengthTooLong
 	}
 	return length, nil
 }
@@ -94,11 +94,11 @@ func readName(reader *bytes.Reader) (string, error) {
 		return "", err
 	}
 	if n != int(length) {
-		return "", NotEnoughBytes
+		return "", ErrNotEnoughBytes
 	}
 
 	if !utf8.Valid(nameBytes) {
-		return "", BadUTF8
+		return "", ErrBadUTF8
 	}
 
 	return string(nameBytes), nil
@@ -137,7 +137,7 @@ func readValueType(reader *bytes.Reader) (wasm.ValType, error) {
 	}
 	valType := wasm.ValType(input)
 	if !valType.IsValid() {
-		return 0, BadEnum
+		return 0, ErrBadEnum
 	}
 	return valType, nil
 }
@@ -148,7 +148,7 @@ func readBool(reader *bytes.Reader) (bool, error) {
 		return false, err
 	}
 	if flag > 1 {
-		return false, BadEnum
+		return false, ErrBadEnum
 	}
 	return flag == 1, nil
 }
@@ -222,7 +222,7 @@ func readOpcode(reader *bytes.Reader) (wasm.Opcode, error) {
 	}
 	opcode := wasm.Opcode(input)
 	if !opcode.IsValid() {
-		return 0, BadEnum
+		return 0, ErrBadEnum
 	}
 	return opcode, nil
 }
@@ -255,7 +255,7 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 			return nil, err
 		}
 		if blockType != 0x40 && !wasm.ValType(blockType).IsValid() {
-			return nil, BadEnum
+			return nil, ErrBadEnum
 		}
 		return blockType, nil
 	case wasm.Br, wasm.BrIf, wasm.Call, wasm.LocalGet, wasm.LocalSet, wasm.LocalTee, wasm.GlobalGet, wasm.GlobalSet:
@@ -302,7 +302,7 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 			return nil, err
 		}
 		if n != 4 {
-			return nil, NotEnoughBytes
+			return nil, ErrNotEnoughBytes
 		}
 		return result, nil
 	case wasm.F64Const:
@@ -312,7 +312,7 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 			return nil, err
 		}
 		if n != 8 {
-			return nil, NotEnoughBytes
+			return nil, ErrNotEnoughBytes
 		}
 		return result, nil
 	}
@@ -350,7 +350,7 @@ func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 			if len(blockStack) != 0 && blockStack[len(blockStack)-1] {
 				blockStack[len(blockStack)-1] = false
 			} else {
-				return nil, UnexpectedElse
+				return nil, ErrUnexpectedElse
 			}
 		}
 	}

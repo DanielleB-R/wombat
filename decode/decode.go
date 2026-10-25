@@ -43,10 +43,10 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		if id != 0 && id <= lastID {
-			return nil, SectionOutOfOrder
+			return nil, ErrSectionOutOfOrder
 		}
 		if id > 11 {
-			return nil, UnknownSectionType
+			return nil, ErrUnknownSectionType
 		}
 		if id != 0 {
 			lastID = id
@@ -58,13 +58,13 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		if length > uint32(reader.Len()) {
-			return nil, LengthTooLong
+			return nil, ErrLengthTooLong
 		}
 
 		contents := make([]byte, length)
 		n, err := reader.Read(contents)
 		if n != int(length) {
-			return nil, NotEnoughBytes
+			return nil, ErrNotEnoughBytes
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("error reading section contents, %w", err)
@@ -159,12 +159,12 @@ func ParseSections(raw *wasm.RawModule) (*wasm.Module, error) {
 			module.Data = dataSection
 
 		default:
-			return nil, UnknownSectionType
+			return nil, ErrUnknownSectionType
 		}
 	}
 
 	if module.Function.Len() != module.Code.Len() {
-		return nil, FunctionCodeMismatch
+		return nil, ErrFunctionCodeMismatch
 	}
 
 	return &module, nil
@@ -223,7 +223,7 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 	}
 
 	if reader.Len() != 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.TypeSection{FunctionTypes: functionTypes}, nil
@@ -258,7 +258,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
-			return nil, BadEnum
+			return nil, ErrBadEnum
 		}
 
 		imports[i].Desc.Kind = extKind
@@ -292,7 +292,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.ImportSection{Imports: imports}, nil
@@ -307,7 +307,7 @@ func decodeFunctionSection(contents []byte) (*wasm.FunctionSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.FunctionSection{FuncTypeIdxs: funcTypeIdxs}, nil
@@ -332,7 +332,7 @@ func decodeTableSection(contents []byte) (*wasm.TableSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.TableSection{Tables: tables}, nil
@@ -357,7 +357,7 @@ func decodeMemorySection(contents []byte) (*wasm.MemorySection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.MemorySection{Memories: memories}, nil
@@ -388,7 +388,7 @@ func decodeGlobalSection(contents []byte) (*wasm.GlobalSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.GlobalSection{Definitions: globals}, nil
@@ -417,7 +417,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
-			return nil, BadEnum
+			return nil, ErrBadEnum
 		}
 
 		exports[i].Kind = extKind
@@ -430,7 +430,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.ExportSection{Exports: exports}, nil
@@ -445,7 +445,7 @@ func decodeStartSection(contents []byte) (*wasm.StartSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.StartSection{FuncIdx: idx}, nil
@@ -482,7 +482,7 @@ func decodeElementSection(contents []byte) (*wasm.ElementSection, error) {
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.ElementSection{Elements: elements}, nil
@@ -510,7 +510,7 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 			return nil, err
 		}
 		if n != int(size) {
-			return nil, NotEnoughBytes
+			return nil, ErrNotEnoughBytes
 		}
 
 		funcReader := bytes.NewReader(buffer)
@@ -543,7 +543,7 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		}
 
 		if localCount > 0xffffffff {
-			return nil, TooManyLocals
+			return nil, ErrTooManyLocals
 		}
 
 		codes[i].Locals = locals
@@ -555,12 +555,12 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		codes[i].Body = expr
 
 		if funcReader.Len() > 0 {
-			return nil, UnderfullSection
+			return nil, ErrSectionMismatch
 		}
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.CodeSection{Codes: codes}, nil
@@ -601,13 +601,13 @@ func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
 			return nil, err
 		}
 		if n != int(initLength) {
-			return nil, NotEnoughBytes
+			return nil, ErrNotEnoughBytes
 		}
 		entries[i].Init = init
 	}
 
 	if reader.Len() > 0 {
-		return nil, UnderfullSection
+		return nil, ErrSectionMismatch
 	}
 
 	return &wasm.DataSection{Entries: entries}, nil

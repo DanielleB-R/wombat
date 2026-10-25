@@ -61,7 +61,7 @@ func TestDecodeLocalsLimitIsPerFunction(t *testing.T) {
 			if tc.ok {
 				require.NoError(t, err)
 			} else {
-				require.ErrorIs(t, err, TooManyLocals)
+				require.ErrorIs(t, err, ErrTooManyLocals)
 			}
 		})
 	}
