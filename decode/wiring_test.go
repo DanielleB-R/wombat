@@ -45,7 +45,15 @@ func testReadS64(b []byte) (v int64, n int, err error) {
 // bytes are a well-formed WebAssembly 1.0 binary, and an error otherwise. It
 // must never panic. Validation errors (type errors, bad indices, limits where
 // min > max, ...) are NOT decode errors; see the validCases in decode_test.go.
-func testDecode(_ []byte) error { return errNotWired }
+func testDecode(b []byte) error {
+	reader := bytes.NewReader(b)
+	sections, err := ReadSections(reader)
+	if err != nil {
+		return err
+	}
+	_, err = DecodeSections(sections)
+	return err
+}
 
 // skipIfNotWired skips t when err says the adapter is a stub.
 func skipIfNotWired(t testing.TB, err error) {

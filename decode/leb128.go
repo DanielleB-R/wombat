@@ -5,19 +5,19 @@ import (
 	"errors"
 )
 
-// ReadLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the buffer
-func ReadLEB128U32(buffer *bytes.Reader) (uint32, error) {
+// ReadLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader
+func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
 	var result uint32
 	bytes := 0
 
 	for {
-		if buffer.Len() == 0 {
+		if reader.Len() == 0 {
 			return 0, errors.New("incomplete number")
 		}
 		if bytes >= 5 {
 			return 0, errors.New("number too large")
 		}
-		thisByte, err := buffer.ReadByte()
+		thisByte, err := reader.ReadByte()
 		if err != nil {
 			panic(err)
 		}
@@ -34,21 +34,21 @@ func ReadLEB128U32(buffer *bytes.Reader) (uint32, error) {
 	return result, nil
 }
 
-// ReadLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the buffer
-func ReadLEB128I32(buffer *bytes.Reader) (int32, error) {
+// ReadLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the reader
+func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 	var result int32
 	bytes := 0
 	var thisByte byte
 	var err error
 
 	for {
-		if buffer.Len() == 0 {
+		if reader.Len() == 0 {
 			return 0, errors.New("incomplete number")
 		}
 		if bytes >= 5 {
 			return 0, errors.New("number too large")
 		}
-		thisByte, err = buffer.ReadByte()
+		thisByte, err = reader.ReadByte()
 		if err != nil {
 			panic(err)
 		}
@@ -70,21 +70,21 @@ func ReadLEB128I32(buffer *bytes.Reader) (int32, error) {
 	return result, nil
 }
 
-// ReadLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the buffer
-func ReadLEB128I64(buffer *bytes.Reader) (int64, error) {
+// ReadLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the reader
+func ReadLEB128I64(reader *bytes.Reader) (int64, error) {
 	var result int64
 	bytes := 0
 	var thisByte byte
 	var err error
 
 	for {
-		if buffer.Len() == 0 {
+		if reader.Len() == 0 {
 			return 0, errors.New("incomplete number")
 		}
 		if bytes >= 10 {
 			return 0, errors.New("number too large")
 		}
-		thisByte, err = buffer.ReadByte()
+		thisByte, err = reader.ReadByte()
 		if err != nil {
 			panic(err)
 		}
