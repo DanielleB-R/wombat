@@ -12,6 +12,7 @@ import (
 // DecodeError is an error type for the decoder
 type DecodeError byte
 
+// Error values for the decoder
 const (
 	FileTooShort DecodeError = iota
 	ValueMismatch
@@ -20,6 +21,7 @@ const (
 	BadUTF8
 	BadEnum
 	UnderfullSection
+	UnexpectedElse
 )
 
 func (d DecodeError) Error() string {
@@ -38,6 +40,8 @@ func (d DecodeError) Error() string {
 		return "invalid enumerated value"
 	case UnderfullSection:
 		return "contents didn't fill section"
+	case UnexpectedElse:
+		return "invalid else instruction"
 	default:
 		panic("invalid value")
 	}
@@ -233,8 +237,14 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 	// we assume the opcode is valid
 	switch opcode {
 	case wasm.Block, wasm.Loop, wasm.If:
-		// more validation here later
-		return reader.ReadByte()
+		blockType, err := reader.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		if blockType != 0x40 && !wasm.ValType(blockType).IsValid() {
+			return nil, BadEnum
+		}
+		return blockType, nil
 	case wasm.Br, wasm.BrIf, wasm.Call, wasm.LocalGet, wasm.LocalSet, wasm.LocalTee, wasm.GlobalGet, wasm.GlobalSet:
 		// read an index
 		return ReadLEB128U32(reader)
@@ -300,7 +310,8 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 	var instructions []wasm.Inst
 
-	depth := 0
+	// entry is true if and only if an else inst would be valid
+	var blockStack []bool
 
 	for {
 		inst, err := readInstruction(reader)
@@ -310,14 +321,24 @@ func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 		instructions = append(instructions, inst)
 
 		if inst.Opcode == wasm.End {
-			if depth == 0 {
+			if len(blockStack) == 0 {
 				break
 			} else {
-				depth--
+				blockStack = blockStack[:len(blockStack)-1]
 			}
 		}
-		if inst.Opcode == wasm.Block || inst.Opcode == wasm.Loop || inst.Opcode == wasm.If {
-			depth++
+		if inst.Opcode == wasm.Block || inst.Opcode == wasm.Loop {
+			blockStack = append(blockStack, false)
+		}
+		if inst.Opcode == wasm.If {
+			blockStack = append(blockStack, true)
+		}
+		if inst.Opcode == wasm.Else {
+			if len(blockStack) != 0 && blockStack[len(blockStack)-1] {
+				blockStack[len(blockStack)-1] = false
+			} else {
+				return nil, UnexpectedElse
+			}
 		}
 	}
 

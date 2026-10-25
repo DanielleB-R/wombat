@@ -487,6 +487,15 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		}
 	}
 
+	var localCount int64
+	for _, code := range codes {
+		localCount += int64(len(code.Locals))
+	}
+
+	if localCount > 0xffffffff {
+		return nil, errors.New("too many locals")
+	}
+
 	if reader.Len() > 0 {
 		return nil, UnderfullSection
 	}
