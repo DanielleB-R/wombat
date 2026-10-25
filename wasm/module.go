@@ -104,7 +104,10 @@ type TableSection struct {
 	Tables []Limits
 }
 
-type MemorySection struct{}
+// MemorySection contains the memory section data
+type MemorySection struct {
+	Memories []Limits
+}
 
 type GlobalSection struct{}
 

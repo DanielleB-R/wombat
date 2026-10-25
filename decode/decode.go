@@ -95,6 +95,12 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 				return nil, fmt.Errorf("error decoding table section: %w", err)
 			}
 			module.Table = tableSection
+		case 5:
+			memorySection, err := decodeMemorySection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding memory section: %w", err)
+			}
+			module.Memory = memorySection
 			// default:
 			// 	return nil, errors.New("unknown section type")
 		}
@@ -259,4 +265,29 @@ func decodeTableSection(contents []byte) (*wasm.TableSection, error) {
 	}
 
 	return &wasm.TableSection{Tables: tables}, nil
+}
+
+func decodeMemorySection(contents []byte) (*wasm.MemorySection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	memories := make([]wasm.Limits, length)
+
+	for i := range length {
+		limits, err := readLimits(reader)
+		if err != nil {
+			return nil, err
+		}
+		memories[i] = limits
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.MemorySection{Memories: memories}, nil
 }
