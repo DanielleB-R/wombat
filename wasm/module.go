@@ -123,7 +123,17 @@ type GlobalSection struct {
 	Definitions []GlobalDefinition
 }
 
-type ExportSection struct{}
+// Export contains the definition of a single export
+type Export struct {
+	Name  string
+	Kind  ExternKind
+	Index uint32
+}
+
+// ExportSection contains the export section data
+type ExportSection struct {
+	Exports []Export
+}
 
 type StartSection struct{}
 

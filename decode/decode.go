@@ -114,6 +114,12 @@ func DecodeSections(raw *wasm.RawModule) (*wasm.Module, error) {
 				return nil, fmt.Errorf("error decoding global section: %w", err)
 			}
 			module.Global = globalSection
+		case 7:
+			exportSection, err := decodeExportSection(rawSection.Contents)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding export section: %w", err)
+			}
+			module.Export = exportSection
 			// default:
 			// 	return nil, errors.New("unknown section type")
 		}
@@ -344,4 +350,46 @@ func decodeGlobalSection(contents []byte) (*wasm.GlobalSection, error) {
 	}
 
 	return &wasm.GlobalSection{Definitions: globals}, nil
+}
+
+func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
+	reader := bytes.NewReader(contents)
+
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	exports := make([]wasm.Export, length)
+
+	for i := range length {
+		name, err := readName(reader)
+		if err != nil {
+			return nil, err
+		}
+		exports[i].Name = name
+
+		kind, err := reader.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		extKind := wasm.ExternKind(kind)
+		if !extKind.IsValid() {
+			return nil, errors.New("invalid export kind")
+		}
+
+		exports[i].Kind = extKind
+
+		idx, err := ReadLEB128U32(reader)
+		if err != nil {
+			return nil, err
+		}
+		exports[i].Index = idx
+	}
+
+	if reader.Len() > 0 {
+		return nil, UnderfullSection
+	}
+
+	return &wasm.ExportSection{Exports: exports}, nil
 }
