@@ -348,3 +348,16 @@ func readVec[T any](reader *bytes.Reader, read func(*bytes.Reader) (T, error)) (
 
 	return vec, nil
 }
+
+func readExternKind(reader *bytes.Reader) (wasm.ExternKind, error) {
+	kind, err := reader.ReadByte()
+	if err != nil {
+		return 0, ErrUnexpectedEOF
+	}
+	extKind := wasm.ExternKind(kind)
+	if !extKind.IsValid() {
+		return 0, ErrBadEnum
+	}
+
+	return extKind, nil
+}
