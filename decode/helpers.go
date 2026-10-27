@@ -29,7 +29,7 @@ const (
 func (d Error) Error() string {
 	switch d {
 	case ErrUnexpectedEOF:
-		return "file too short"
+		return "unexpected end"
 	case ErrValueMismatch:
 		return "fixed byte mismatch"
 	case ErrLengthTooLong:
@@ -300,9 +300,10 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 	var instructions []wasm.Inst
 
-	// entry is true if and only if an else inst would be valid
+	// the block stack entry is true if and only if an else inst would be valid
 	var blockStack []bool
 
+loop:
 	for {
 		inst, err := readInstruction(reader)
 		if err != nil {
@@ -310,20 +311,19 @@ func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 		}
 		instructions = append(instructions, inst)
 
-		if inst.Opcode == wasm.End {
+		//nolint:exhaustive
+		switch inst.Opcode {
+		case wasm.End:
 			if len(blockStack) == 0 {
-				break
+				break loop
 			}
 
 			blockStack = blockStack[:len(blockStack)-1]
-		}
-		if inst.Opcode == wasm.Block || inst.Opcode == wasm.Loop {
+		case wasm.Block, wasm.Loop:
 			blockStack = append(blockStack, false)
-		}
-		if inst.Opcode == wasm.If {
+		case wasm.If:
 			blockStack = append(blockStack, true)
-		}
-		if inst.Opcode == wasm.Else {
+		case wasm.Else:
 			if len(blockStack) != 0 && blockStack[len(blockStack)-1] {
 				blockStack[len(blockStack)-1] = false
 			} else {

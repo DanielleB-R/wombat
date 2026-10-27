@@ -69,83 +69,44 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 	return &module, nil
 }
 
+var sectionNames = []string{"", "type", "import", "function", "table", "memory", "global", "export", "start", "element", "code", "data"}
+
 // ParseSections decodes the contents of the module into appropriate data structures
 func ParseSections(raw *wasm.RawModule) (*wasm.Module, error) {
 	var module wasm.Module
 
 	for _, rawSection := range raw.Sections {
+		var err error
 		switch rawSection.ID {
 		case 1:
-			typeSection, err := decodeSection(rawSection.Contents, decodeFunctionType)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding type section: %w", err)
-			}
-			module.Type = typeSection
+			module.Type, err = decodeSection(rawSection.Contents, decodeFunctionType)
 		case 2:
-			importSection, err := decodeSection(rawSection.Contents, decodeImport)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding import section: %w", err)
-			}
-			module.Import = importSection
+			module.Import, err = decodeSection(rawSection.Contents, decodeImport)
 		case 3:
-			functionSection, err := decodeSection(rawSection.Contents, readLEB128U32)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding function section: %w", err)
-			}
-			module.Function = functionSection
-
+			module.Function, err = decodeSection(rawSection.Contents, readLEB128U32)
 		case 4:
-			tableSection, err := decodeSection(rawSection.Contents, readTableType)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding table section: %w", err)
-			}
-			module.Table = tableSection
+			module.Table, err = decodeSection(rawSection.Contents, readTableType)
 		case 5:
-			memorySection, err := decodeSection(rawSection.Contents, readLimits)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding memory section: %w", err)
-			}
-			module.Memory = memorySection
+			module.Memory, err = decodeSection(rawSection.Contents, readLimits)
 		case 6:
-			globalSection, err := decodeSection(rawSection.Contents, decodeGlobalDefinition)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding global section: %w", err)
-			}
-			module.Global = globalSection
+			module.Global, err = decodeSection(rawSection.Contents, decodeGlobalDefinition)
 		case 7:
-			exportSection, err := decodeSection(rawSection.Contents, decodeExport)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding export section: %w", err)
-			}
-			module.Export = exportSection
+			module.Export, err = decodeSection(rawSection.Contents, decodeExport)
 		case 8:
-			startSection, err := decodeStartSection(rawSection.Contents)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding start section: %w", err)
-			}
-			module.Start = startSection
+			module.Start, err = decodeStartSection(rawSection.Contents)
 		case 9:
-			elementSection, err := decodeSection(rawSection.Contents, decodeElement)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding element section: %w", err)
-			}
-			module.Element = elementSection
+			module.Element, err = decodeSection(rawSection.Contents, decodeElement)
 		case 10:
-			codeSection, err := decodeSection(rawSection.Contents, decodeFunction)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding code section: %w", err)
-			}
-			module.Code = codeSection
+			module.Code, err = decodeSection(rawSection.Contents, decodeFunction)
 		case 11:
-			dataSection, err := decodeSection(rawSection.Contents, decodeDataEntry)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding data section: %w", err)
-			}
-			module.Data = dataSection
-
+			module.Data, err = decodeSection(rawSection.Contents, decodeDataEntry)
 		default:
 			return nil, ErrUnknownSectionType
 		}
+		if err != nil {
+			return nil, fmt.Errorf("error decoding %s section: %w", sectionNames[rawSection.ID], err)
+		}
+
 	}
 
 	if len(module.Function) != len(module.Code) {

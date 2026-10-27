@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-// LEB128Error is the error type for the LEB128 code
+// LEB128Error is the error type for the LEB128 code.
 type LEB128Error byte
 
-// These are the possible error values
+// These are the possible error values.
 const (
 	ErrIncompleteNumber LEB128Error = iota
 	ErrNumberTooLarge
@@ -28,7 +28,7 @@ func (l LEB128Error) Error() string {
 	}
 }
 
-// readLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader
+// readLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader.
 func readLEB128U32(reader *bytes.Reader) (uint32, error) {
 	var result uint32
 	n := 0
@@ -54,7 +54,7 @@ func readLEB128U32(reader *bytes.Reader) (uint32, error) {
 	return result, nil
 }
 
-// readLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the reader
+// readLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the reader.
 func readLEB128I32(reader *bytes.Reader) (int32, error) {
 	var result int32
 	n := 0
@@ -80,14 +80,14 @@ func readLEB128I32(reader *bytes.Reader) (int32, error) {
 	if n < 4 && thisByte&0x40 != 0 {
 		result |= (^0) << ((n + 1) * 7)
 	}
-	if n == 4 && thisByte&0x70 != (thisByte&0x08>>3)*0x70 {
+	if n == 4 && thisByte&0x70 != ((thisByte&0x08)>>3)*0x70 {
 		return 0, ErrUnusableBits
 	}
 
 	return result, nil
 }
 
-// readLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the reader
+// readLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the reader.
 func readLEB128I64(reader *bytes.Reader) (int64, error) {
 	var result int64
 	n := 0
