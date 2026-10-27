@@ -19,7 +19,7 @@ func isDecodeError(err error) bool {
 // Error() is called by fmt and loggers on whatever value they are handed; it
 // must not panic, even for a value outside the declared set.
 func TestErrorMessages(t *testing.T) {
-	for e := ErrFileTooShort; e <= ErrTooManyLocals; e++ {
+	for e := ErrUnexpectedEOF; e <= ErrTooManyLocals; e++ {
 		require.NotEmpty(t, e.Error(), "decode.Error(%d)", e)
 	}
 	for e := ErrIncompleteNumber; e <= ErrUnusableBits; e++ {

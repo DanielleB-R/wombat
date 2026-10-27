@@ -36,22 +36,22 @@ func localsMod(funcs ...[]uint32) []byte {
 // function may total at most 2^32-1. The limit is per function, not per
 // module, and is not shared between functions.
 func TestDecodeLocalsLimitIsPerFunction(t *testing.T) {
-	const max = 0xFFFFFFFF
+	const maxLocals = 0xFFFFFFFF
 	tests := []struct {
 		name  string
 		funcs [][]uint32
 		ok    bool
 	}{
-		{"one function at the limit", [][]uint32{{max}}, true},
+		{"one function at the limit", [][]uint32{{maxLocals}}, true},
 		{"one function at the limit across groups", [][]uint32{{0x80000000, 0x7FFFFFFF}}, true},
-		{"one function one past the limit", [][]uint32{{max, 1}}, false},
+		{"one function one past the limit", [][]uint32{{maxLocals, 1}}, false},
 		{"one function at 2^32 across groups", [][]uint32{{0x80000000, 0x80000000}}, false},
-		{"one function far past the limit", [][]uint32{{max, max}}, false},
-		{"two functions each at the limit", [][]uint32{{max}, {max}}, true},
+		{"one function far past the limit", [][]uint32{{maxLocals, maxLocals}}, false},
+		{"two functions each at the limit", [][]uint32{{maxLocals}, {maxLocals}}, true},
 		{"two functions each 2^31 (module total is 2^32)", [][]uint32{{0x80000000}, {0x80000000}}, true},
-		{"three functions each at the limit", [][]uint32{{max}, {max}, {max}}, true},
-		{"second function past the limit", [][]uint32{{1}, {max, 1}}, false},
-		{"first function past the limit", [][]uint32{{max, 1}, {1}}, false},
+		{"three functions each at the limit", [][]uint32{{maxLocals}, {maxLocals}, {maxLocals}}, true},
+		{"second function past the limit", [][]uint32{{1}, {maxLocals, 1}}, false},
+		{"first function past the limit", [][]uint32{{maxLocals, 1}, {1}}, false},
 		{"many small functions", [][]uint32{{1}, {2}, {3}}, true},
 	}
 	for _, tc := range tests {

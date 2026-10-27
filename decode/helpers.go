@@ -13,10 +13,9 @@ type Error byte
 
 // Error values for the decoder
 const (
-	ErrFileTooShort Error = iota
+	ErrUnexpectedEOF Error = iota
 	ErrValueMismatch
 	ErrLengthTooLong
-	ErrNotEnoughBytes
 	ErrBadUTF8
 	ErrBadEnum
 	ErrSectionMismatch
@@ -29,14 +28,12 @@ const (
 
 func (d Error) Error() string {
 	switch d {
-	case ErrFileTooShort:
+	case ErrUnexpectedEOF:
 		return "file too short"
 	case ErrValueMismatch:
 		return "fixed byte mismatch"
 	case ErrLengthTooLong:
 		return "length too long"
-	case ErrNotEnoughBytes:
-		return "not enough bytes"
 	case ErrBadUTF8:
 		return "invalid UTF-8 string"
 	case ErrBadEnum:
@@ -61,7 +58,7 @@ func (d Error) Error() string {
 func expectByte(reader *bytes.Reader, value byte) error {
 	found, err := reader.ReadByte()
 	if err != nil {
-		return ErrFileTooShort
+		return ErrUnexpectedEOF
 	}
 	if found != value {
 		return ErrValueMismatch
@@ -90,7 +87,7 @@ func readName(reader *bytes.Reader) (string, error) {
 	nameBytes := make([]byte, length)
 	n, _ := reader.Read(nameBytes)
 	if n != int(length) {
-		return "", ErrNotEnoughBytes
+		return "", ErrUnexpectedEOF
 	}
 
 	if !utf8.Valid(nameBytes) {
@@ -129,7 +126,7 @@ func readLimits(reader *bytes.Reader) (wasm.Limits, error) {
 func readValueType(reader *bytes.Reader) (wasm.ValType, error) {
 	input, err := reader.ReadByte()
 	if err != nil {
-		return 0, ErrFileTooShort
+		return 0, ErrUnexpectedEOF
 	}
 	valType := wasm.ValType(input)
 	if !valType.IsValid() {
@@ -141,7 +138,7 @@ func readValueType(reader *bytes.Reader) (wasm.ValType, error) {
 func readBool(reader *bytes.Reader) (bool, error) {
 	flag, err := reader.ReadByte()
 	if err != nil {
-		return false, ErrFileTooShort
+		return false, ErrUnexpectedEOF
 	}
 	if flag > 1 {
 		return false, ErrBadEnum
@@ -214,7 +211,7 @@ func readInstruction(reader *bytes.Reader) (wasm.Inst, error) {
 func readOpcode(reader *bytes.Reader) (wasm.Opcode, error) {
 	input, err := reader.ReadByte()
 	if err != nil {
-		return 0, ErrFileTooShort
+		return 0, ErrUnexpectedEOF
 	}
 	opcode := wasm.Opcode(input)
 	if !opcode.IsValid() {
@@ -248,7 +245,7 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 	case wasm.Block, wasm.Loop, wasm.If:
 		blockType, err := reader.ReadByte()
 		if err != nil {
-			return nil, ErrFileTooShort
+			return nil, ErrUnexpectedEOF
 		}
 		if blockType != 0x40 && !wasm.ValType(blockType).IsValid() {
 			return nil, ErrBadEnum
@@ -295,14 +292,14 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 		result := [4]byte{0}
 		n, _ := reader.Read(result[:])
 		if n != 4 {
-			return nil, ErrNotEnoughBytes
+			return nil, ErrUnexpectedEOF
 		}
 		return result, nil
 	case wasm.F64Const:
 		result := [8]byte{0}
 		n, _ := reader.Read(result[:])
 		if n != 8 {
-			return nil, ErrNotEnoughBytes
+			return nil, ErrUnexpectedEOF
 		}
 		return result, nil
 	}

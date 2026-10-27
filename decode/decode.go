@@ -37,7 +37,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 	for reader.Len() > 0 {
 		id, err := reader.ReadByte()
 		if err != nil {
-			return nil, ErrFileTooShort
+			return nil, ErrUnexpectedEOF
 		}
 
 		if id != 0 && id <= lastID {
@@ -60,10 +60,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		contents := make([]byte, length)
-		n, _ := reader.Read(contents)
-		if n != int(length) {
-			return nil, ErrNotEnoughBytes
-		}
+		_, _ = reader.Read(contents)
 
 		if id == 0 {
 			_, err := readName(bytes.NewReader(contents))
@@ -249,7 +246,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 
 		kind, err := reader.ReadByte()
 		if err != nil {
-			return nil, ErrFileTooShort
+			return nil, ErrUnexpectedEOF
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
@@ -408,7 +405,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 
 		kind, err := reader.ReadByte()
 		if err != nil {
-			return nil, ErrFileTooShort
+			return nil, ErrUnexpectedEOF
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
@@ -502,7 +499,7 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		buffer := make([]byte, size)
 		n, _ := reader.Read(buffer)
 		if n != int(size) {
-			return nil, ErrNotEnoughBytes
+			return nil, ErrUnexpectedEOF
 		}
 
 		funcReader := bytes.NewReader(buffer)
@@ -590,7 +587,7 @@ func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
 
 		n, _ := reader.Read(init)
 		if n != int(initLength) {
-			return nil, ErrNotEnoughBytes
+			return nil, ErrUnexpectedEOF
 		}
 		entries[i].Init = init
 	}
