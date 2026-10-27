@@ -25,13 +25,6 @@ func decodeOrSkip(t *testing.T, in []byte) *wasm.Module {
 	return m
 }
 
-func importsOf(m *wasm.Module) []wasm.Import {
-	if m.Import == nil {
-		return nil
-	}
-	return m.Import.Imports
-}
-
 func requireFuncType(t *testing.T, got wasm.FunctionType, params, results []wasm.ValType) {
 	t.Helper()
 	// slices.Equal treats nil and empty as equal; the representation of "no
@@ -49,12 +42,11 @@ func TestDecodeTypeSectionContents(t *testing.T) {
 		typeFunc, 0x00, 0x01, typeI32,
 	))
 	m := decodeOrSkip(t, in)
-	require.NotNil(t, m.Type)
-	require.Len(t, m.Type.FunctionTypes, 4)
-	requireFuncType(t, m.Type.FunctionTypes[0], nil, nil)
-	requireFuncType(t, m.Type.FunctionTypes[1], []wasm.ValType{wasm.I32, wasm.I64}, []wasm.ValType{wasm.F32})
-	requireFuncType(t, m.Type.FunctionTypes[2], []wasm.ValType{wasm.F64}, nil)
-	requireFuncType(t, m.Type.FunctionTypes[3], nil, []wasm.ValType{wasm.I32})
+	require.Len(t, m.Type, 4)
+	requireFuncType(t, m.Type[0], nil, nil)
+	requireFuncType(t, m.Type[1], []wasm.ValType{wasm.I32, wasm.I64}, []wasm.ValType{wasm.F32})
+	requireFuncType(t, m.Type[2], []wasm.ValType{wasm.F64}, nil)
+	requireFuncType(t, m.Type[3], nil, []wasm.ValType{wasm.I32})
 }
 
 func TestDecodeImportContents(t *testing.T) {
@@ -153,7 +145,7 @@ func TestDecodeImportContents(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secImport, tc.body...)))
-			got := importsOf(m)
+			got := m.Import
 			// Comparing whole structs also checks that fields belonging to
 			// the other kinds are left at their zero values.
 			if len(tc.want) == 0 {
@@ -176,10 +168,9 @@ func TestDecodeImportsFixture(t *testing.T) {
 	require.NoError(t, err)
 	m := decodeOrSkip(t, data)
 
-	require.NotNil(t, m.Type)
-	require.Len(t, m.Type.FunctionTypes, 2)
-	requireFuncType(t, m.Type.FunctionTypes[0], []wasm.ValType{wasm.I32, wasm.I64}, []wasm.ValType{wasm.F64})
-	requireFuncType(t, m.Type.FunctionTypes[1], []wasm.ValType{wasm.I32}, nil)
+	require.Len(t, m.Type, 2)
+	requireFuncType(t, m.Type[0], []wasm.ValType{wasm.I32, wasm.I64}, []wasm.ValType{wasm.F64})
+	requireFuncType(t, m.Type[1], []wasm.ValType{wasm.I32}, nil)
 
 	require.Equal(t, []wasm.Import{
 		{Module: "env", Name: "log", Desc: wasm.ImportDesc{Kind: wasm.FuncKind, FuncTypeIdx: 1}},
@@ -187,12 +178,12 @@ func TestDecodeImportsFixture(t *testing.T) {
 		{Module: "env", Name: "mem", Desc: wasm.ImportDesc{Kind: wasm.MemKind, MemLimits: wasm.Limits{HasMax: true, Min: 1, Max: 4}}},
 		{Module: "env", Name: "tab", Desc: wasm.ImportDesc{Kind: wasm.TableKind, TableLimits: wasm.Limits{Min: 2}}},
 		{Module: "env", Name: "g", Desc: wasm.ImportDesc{Kind: wasm.GlobalKind, GlobalType: wasm.GlobalType{ValType: wasm.I32}}},
-	}, importsOf(m))
+	}, m.Import)
 }
 
 func TestDecodeNoImportSection(t *testing.T) {
 	m := decodeOrSkip(t, mod(typeSec()))
-	require.Empty(t, importsOf(m))
+	require.Empty(t, m.Import)
 }
 
 func TestDecodeTableContents(t *testing.T) {
@@ -215,11 +206,10 @@ func TestDecodeTableContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secTable, tc.body...)))
 			if len(tc.want) == 0 {
-				require.True(t, m.Table == nil || len(m.Table.Tables) == 0)
+				require.Empty(t, m.Table)
 				return
 			}
-			require.NotNil(t, m.Table)
-			require.Equal(t, tc.want, m.Table.Tables)
+			require.Equal(t, tc.want, m.Table)
 		})
 	}
 }
@@ -229,8 +219,7 @@ func TestDecodeTableFixture(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "local.wasm"))
 	require.NoError(t, err)
 	m := decodeOrSkip(t, data)
-	require.NotNil(t, m.Table)
-	require.Equal(t, []wasm.Limits{{Min: 2}}, m.Table.Tables)
+	require.Equal(t, []wasm.Limits{{Min: 2}}, m.Table)
 }
 
 func TestDecodeMemoryContents(t *testing.T) {
@@ -255,11 +244,10 @@ func TestDecodeMemoryContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secMemory, tc.body...)))
 			if len(tc.want) == 0 {
-				require.True(t, m.Memory == nil || len(m.Memory.Memories) == 0)
+				require.Empty(t, m.Memory)
 				return
 			}
-			require.NotNil(t, m.Memory)
-			require.Equal(t, tc.want, m.Memory.Memories)
+			require.Equal(t, tc.want, m.Memory)
 		})
 	}
 }
@@ -279,8 +267,7 @@ func TestDecodeMemoryFixtures(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", tc.file))
 			require.NoError(t, err)
 			m := decodeOrSkip(t, data)
-			require.NotNil(t, m.Memory)
-			require.Equal(t, []wasm.Limits{tc.want}, m.Memory.Memories)
+			require.Equal(t, []wasm.Limits{tc.want}, m.Memory)
 		})
 	}
 }
@@ -314,14 +301,13 @@ func TestDecodeFunctionContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			in := mod(typeSec(), sec(secFunc, tc.body...), codeSecN(len(tc.want)))
 			m := decodeOrSkip(t, in)
-			require.NotNil(t, m.Function)
-			require.Equal(t, tc.want, m.Function.FuncTypeIdxs)
+			require.Equal(t, tc.want, m.Function)
 		})
 	}
 
 	t.Run("empty section", func(t *testing.T) {
 		m := decodeOrSkip(t, mod(typeSec(), sec(secFunc, 0x00)))
-		require.True(t, m.Function == nil || len(m.Function.FuncTypeIdxs) == 0)
+		require.Empty(t, m.Function)
 	})
 }
 
@@ -342,8 +328,7 @@ func TestDecodeFunctionFixtures(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", tc.file))
 			require.NoError(t, err)
 			m := decodeOrSkip(t, data)
-			require.NotNil(t, m.Function)
-			require.Equal(t, tc.want, m.Function.FuncTypeIdxs)
+			require.Equal(t, tc.want, m.Function)
 		})
 	}
 }
@@ -441,8 +426,7 @@ func TestDecodeGlobalContents(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secGlobal, tc.body...)))
-			require.NotNil(t, m.Global)
-			require.Equal(t, tc.want, m.Global.Definitions)
+			require.Equal(t, tc.want, m.Global)
 		})
 	}
 }
@@ -453,7 +437,6 @@ func TestDecodeGlobalFixture(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "local.wasm"))
 	require.NoError(t, err)
 	m := decodeOrSkip(t, data)
-	require.NotNil(t, m.Global)
 	require.Equal(t, []wasm.GlobalDefinition{
 		{
 			Type: wasm.GlobalType{ValType: wasm.I32},
@@ -463,7 +446,7 @@ func TestDecodeGlobalFixture(t *testing.T) {
 			Type: wasm.GlobalType{ValType: wasm.F64},
 			Init: &wasm.Expr{Instructions: []wasm.Inst{{Opcode: wasm.F64Const, Immediate: [8]byte{0, 0, 0, 0, 0, 0, 0xF8, 0x3F}}, {Opcode: wasm.End}}},
 		},
-	}, m.Global.Definitions)
+	}, m.Global)
 }
 
 func TestDecodeExportContents(t *testing.T) {
@@ -502,11 +485,10 @@ func TestDecodeExportContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secExport, tc.body...)))
 			if len(tc.want) == 0 {
-				require.True(t, m.Export == nil || len(m.Export.Exports) == 0)
+				require.Empty(t, m.Export)
 				return
 			}
-			require.NotNil(t, m.Export)
-			require.Equal(t, tc.want, m.Export.Exports)
+			require.Equal(t, tc.want, m.Export)
 		})
 	}
 }
@@ -537,8 +519,7 @@ func TestDecodeExportFixtures(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", tc.file))
 			require.NoError(t, err)
 			m := decodeOrSkip(t, data)
-			require.NotNil(t, m.Export)
-			require.Equal(t, tc.want, m.Export.Exports)
+			require.Equal(t, tc.want, m.Export)
 		})
 	}
 }
@@ -573,9 +554,8 @@ func TestDecodeCodeLocals(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(typeSec(), funcSec(), codeSec(tc.locals, opEnd)))
-			require.NotNil(t, m.Code)
-			require.Len(t, m.Code.Codes, 1)
-			got := m.Code.Codes[0].Locals
+			require.Len(t, m.Code, 1)
+			got := m.Code[0].Locals
 			require.True(t, slices.Equal(tc.want, got), "want %v, got %v", tc.want, got)
 		})
 	}
@@ -616,8 +596,8 @@ func TestDecodeCodeBodies(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, bodyMod(tc.body...))
-			require.Len(t, m.Code.Codes, 1)
-			got := m.Code.Codes[0].Body
+			require.Len(t, m.Code, 1)
+			got := m.Code[0].Body
 			require.NotNil(t, got)
 			// The immediate of a "no vector" br_table may be nil or empty.
 			require.Len(t, got.Instructions, len(tc.want))
@@ -655,8 +635,8 @@ func TestDecodeCodeStructuredControl(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, bodyMod(tc.body...))
-			require.Len(t, m.Code.Codes, 1)
-			require.Equal(t, tc.want, opcodesOf(m.Code.Codes[0].Body))
+			require.Len(t, m.Code, 1)
+			require.Equal(t, tc.want, opcodesOf(m.Code[0].Body))
 		})
 	}
 }
@@ -668,11 +648,11 @@ func TestDecodeCodeMultipleFunctions(t *testing.T) {
 	code := sec(secCode, bs([]byte{0x02, byte(len(f1))}, f1, []byte{byte(len(f2))}, f2)...)
 	in := mod(typeSec(), sec(secFunc, 0x02, 0x00, 0x00), code)
 	m := decodeOrSkip(t, in)
-	require.Len(t, m.Code.Codes, 2)
-	require.Equal(t, []wasm.Local{{Count: 1, Type: wasm.I32}}, m.Code.Codes[0].Locals)
-	require.Equal(t, []wasm.Opcode{wasm.I32Const, wasm.Drop, wasm.End}, opcodesOf(m.Code.Codes[0].Body))
-	require.Empty(t, m.Code.Codes[1].Locals)
-	require.Equal(t, []wasm.Opcode{wasm.Nop, wasm.End}, opcodesOf(m.Code.Codes[1].Body))
+	require.Len(t, m.Code, 2)
+	require.Equal(t, []wasm.Local{{Count: 1, Type: wasm.I32}}, m.Code[0].Locals)
+	require.Equal(t, []wasm.Opcode{wasm.I32Const, wasm.Drop, wasm.End}, opcodesOf(m.Code[0].Body))
+	require.Empty(t, m.Code[1].Locals)
+	require.Equal(t, []wasm.Opcode{wasm.Nop, wasm.End}, opcodesOf(m.Code[1].Body))
 }
 
 // `wasm-objdump -d` for add.wasm: local.get 0; local.get 1; i32.add; end.
@@ -680,13 +660,13 @@ func TestDecodeCodeFixtureAdd(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "add.wasm"))
 	require.NoError(t, err)
 	m := decodeOrSkip(t, data)
-	require.Len(t, m.Code.Codes, 1)
+	require.Len(t, m.Code, 1)
 	require.Equal(t, []wasm.Inst{
 		{Opcode: wasm.LocalGet, Immediate: uint32(0)},
 		{Opcode: wasm.LocalGet, Immediate: uint32(1)},
 		{Opcode: 0x6A},
 		{Opcode: wasm.End},
-	}, m.Code.Codes[0].Body.Instructions)
+	}, m.Code[0].Body.Instructions)
 }
 
 // Every fixture must decode with one code entry per function-section entry,
@@ -697,19 +677,12 @@ func TestDecodeCodeFixturesMatchFunctions(t *testing.T) {
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 			m := decodeOrSkip(t, data)
-			var nFuncs, nCode int
-			if m.Function != nil {
-				nFuncs = len(m.Function.FuncTypeIdxs)
+			for i, c := range m.Code {
+				require.NotNil(t, c.Body, "body %d", i)
+				require.NotEmpty(t, c.Body.Instructions, "body %d", i)
+				require.Equal(t, wasm.End, c.Body.Instructions[len(c.Body.Instructions)-1].Opcode, "body %d", i)
 			}
-			if m.Code != nil {
-				nCode = len(m.Code.Codes)
-				for i, c := range m.Code.Codes {
-					require.NotNil(t, c.Body, "body %d", i)
-					require.NotEmpty(t, c.Body.Instructions, "body %d", i)
-					require.Equal(t, wasm.End, c.Body.Instructions[len(c.Body.Instructions)-1].Opcode, "body %d", i)
-				}
-			}
-			require.Equal(t, nFuncs, nCode)
+			require.Len(t, m.Code, len(m.Function))
 		})
 	}
 }
@@ -733,7 +706,7 @@ func TestDecodeStartContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secStart, tc.body...)))
 			require.NotNil(t, m.Start, "a present start section must be distinguishable from none")
-			require.Equal(t, tc.want, m.Start.FuncIdx)
+			require.Equal(t, tc.want, *m.Start)
 		})
 	}
 
@@ -754,7 +727,7 @@ func TestDecodeStartFixtures(t *testing.T) {
 			m := decodeOrSkip(t, data)
 			if name == "local.wasm" {
 				require.NotNil(t, m.Start)
-				require.Equal(t, uint32(1), m.Start.FuncIdx)
+				require.Equal(t, uint32(1), *m.Start)
 				return
 			}
 			require.Nil(t, m.Start)
@@ -828,13 +801,12 @@ func TestDecodeElementContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secElement, tc.body...)))
 			if len(tc.want) == 0 {
-				require.True(t, m.Element == nil || len(m.Element.Elements) == 0)
+				require.Empty(t, m.Element)
 				return
 			}
-			require.NotNil(t, m.Element)
-			require.Len(t, m.Element.Elements, len(tc.want))
+			require.Len(t, m.Element, len(tc.want))
 			for i, want := range tc.want {
-				got := m.Element.Elements[i]
+				got := m.Element[i]
 				require.Equal(t, want.TableIdx, got.TableIdx, "segment %d table", i)
 				require.Equal(t, want.Offset, got.Offset, "segment %d offset", i)
 				require.True(t, slices.Equal(want.Init, got.Init), "segment %d init: want %v, got %v", i, want.Init, got.Init)
@@ -849,9 +821,8 @@ func TestDecodeElementFixture(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "wasm", "local.wasm"))
 	require.NoError(t, err)
 	m := decodeOrSkip(t, data)
-	require.NotNil(t, m.Element)
-	require.Len(t, m.Element.Elements, 1)
-	e := m.Element.Elements[0]
+	require.Len(t, m.Element, 1)
+	e := m.Element[0]
 	require.Equal(t, uint32(0), e.TableIdx)
 	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(0)}, {Opcode: wasm.End}}, e.Offset.Instructions)
 	require.Equal(t, []uint32{0, 1}, e.Init)
@@ -922,13 +893,12 @@ func TestDecodeDataContents(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, mod(sec(secData, tc.body...)))
 			if len(tc.want) == 0 {
-				require.True(t, m.Data == nil || len(m.Data.Entries) == 0)
+				require.Empty(t, m.Data)
 				return
 			}
-			require.NotNil(t, m.Data)
-			require.Len(t, m.Data.Entries, len(tc.want))
+			require.Len(t, m.Data, len(tc.want))
 			for i, want := range tc.want {
-				got := m.Data.Entries[i]
+				got := m.Data[i]
 				require.Equal(t, want.MemIdx, got.MemIdx, "segment %d memory", i)
 				require.Equal(t, want.Offset, got.Offset, "segment %d offset", i)
 				require.True(t, bytes.Equal(want.Init, got.Init), "segment %d init: want % x, got % x", i, want.Init, got.Init)
@@ -945,8 +915,7 @@ func TestDecodeDataDoesNotAliasInput(t *testing.T) {
 	for i := range in {
 		in[i] = 0xEE
 	}
-	require.NotNil(t, m.Data)
-	require.Equal(t, []byte{0x01, 0x02, 0x03}, m.Data.Entries[0].Init)
+	require.Equal(t, []byte{0x01, 0x02, 0x03}, m.Data[0].Init)
 }
 
 // `wasm-objdump -x`: local.wasm has one segment at offset 8 holding
@@ -960,17 +929,15 @@ func TestDecodeDataFixtures(t *testing.T) {
 	}
 
 	local := read("local.wasm")
-	require.NotNil(t, local.Data)
-	require.Len(t, local.Data.Entries, 1)
-	require.Equal(t, uint32(0), local.Data.Entries[0].MemIdx)
-	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(8)}, {Opcode: wasm.End}}, local.Data.Entries[0].Offset.Instructions)
-	require.Equal(t, []byte("hello\x00\xff wombat"), local.Data.Entries[0].Init)
+	require.Len(t, local.Data, 1)
+	require.Equal(t, uint32(0), local.Data[0].MemIdx)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(8)}, {Opcode: wasm.End}}, local.Data[0].Offset.Instructions)
+	require.Equal(t, []byte("hello\x00\xff wombat"), local.Data[0].Init)
 
 	mem := read("memory.wasm")
-	require.NotNil(t, mem.Data)
-	require.Len(t, mem.Data.Entries, 2)
-	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(0)}, {Opcode: wasm.End}}, mem.Data.Entries[0].Offset.Instructions)
-	require.Empty(t, mem.Data.Entries[0].Init)
-	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(65535)}, {Opcode: wasm.End}}, mem.Data.Entries[1].Offset.Instructions)
-	require.Equal(t, []byte{0x01}, mem.Data.Entries[1].Init)
+	require.Len(t, mem.Data, 2)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(0)}, {Opcode: wasm.End}}, mem.Data[0].Offset.Instructions)
+	require.Empty(t, mem.Data[0].Init)
+	require.Equal(t, []wasm.Inst{{Opcode: wasm.I32Const, Immediate: int32(65535)}, {Opcode: wasm.End}}, mem.Data[1].Offset.Instructions)
+	require.Equal(t, []byte{0x01}, mem.Data[1].Init)
 }

@@ -176,8 +176,8 @@ func TestOpcodeImmediates(t *testing.T) {
 			for i, s := range samplesFor(c) {
 				body := bs([]byte{byte(op)}, s.bytes, []byte{0x01, opEnd})
 				m := decodeOrSkip(t, bodyMod(body...))
-				require.Len(t, m.Code.Codes, 1)
-				got := m.Code.Codes[0].Body.Instructions
+				require.Len(t, m.Code, 1)
+				got := m.Code[0].Body.Instructions
 				require.Len(t, got, 3, "sample %d: opcode, nop, end", i)
 				require.Equal(t, wasm.Opcode(op), got[0].Opcode, "sample %d", i)
 				sameImmediate(t, s.want, got[0].Immediate, fmt.Sprintf("sample %d (% x)", i, s.bytes))
@@ -238,7 +238,7 @@ func TestOpcodeBlockTypes(t *testing.T) {
 		for _, bt := range valid {
 			t.Run(fmt.Sprintf("%s/valid 0x%02X", opName(int(op)), bt), func(t *testing.T) {
 				m := decodeOrSkip(t, bodyMod(byte(op), bt, opEnd, opEnd))
-				got := opcodesOf(m.Code.Codes[0].Body)
+				got := opcodesOf(m.Code[0].Body)
 				require.Equal(t, []wasm.Opcode{op, wasm.End, wasm.End}, got)
 			})
 		}
@@ -294,7 +294,7 @@ func TestOpcodeElseAndEnd(t *testing.T) {
 	for _, tc := range valid {
 		t.Run("valid/"+tc.name, func(t *testing.T) {
 			m := decodeOrSkip(t, bodyMod(tc.body...))
-			require.Equal(t, tc.want, opcodesOf(m.Code.Codes[0].Body))
+			require.Equal(t, tc.want, opcodesOf(m.Code[0].Body))
 		})
 	}
 
@@ -340,8 +340,8 @@ func TestOpcodeDeepNesting(t *testing.T) {
 	in := mod(typeSec(), funcSec(), code)
 
 	m := decodeOrSkip(t, in)
-	require.Len(t, m.Code.Codes, 1)
-	require.Len(t, m.Code.Codes[0].Body.Instructions, 2*depth+1)
+	require.Len(t, m.Code, 1)
+	require.Len(t, m.Code[0].Body.Instructions, 2*depth+1)
 
 	// Same input with the last end missing is malformed, not a hang or a panic.
 	short := slices.Clone(body[:len(body)-1])

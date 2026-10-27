@@ -155,14 +155,14 @@ func ParseSections(raw *wasm.RawModule) (*wasm.Module, error) {
 		}
 	}
 
-	if module.Function.Len() != module.Code.Len() {
+	if len(module.Function) != len(module.Code) {
 		return nil, ErrFunctionCodeMismatch
 	}
 
 	return &module, nil
 }
 
-func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
+func decodeTypeSection(contents []byte) ([]wasm.FunctionType, error) {
 	reader := bytes.NewReader(contents)
 
 	functionTypes, err := readVec(reader, func(reader *bytes.Reader) (wasm.FunctionType, error) {
@@ -197,10 +197,10 @@ func decodeTypeSection(contents []byte) (*wasm.TypeSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.TypeSection{FunctionTypes: functionTypes}, nil
+	return functionTypes, nil
 }
 
-func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
+func decodeImportSection(contents []byte) ([]wasm.Import, error) {
 	reader := bytes.NewReader(contents)
 
 	imports, err := readVec(reader, func(reader *bytes.Reader) (wasm.Import, error) {
@@ -266,10 +266,10 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.ImportSection{Imports: imports}, nil
+	return imports, nil
 }
 
-func decodeFunctionSection(contents []byte) (*wasm.FunctionSection, error) {
+func decodeFunctionSection(contents []byte) ([]uint32, error) {
 	reader := bytes.NewReader(contents)
 
 	funcTypeIdxs, err := readIndexVector(reader)
@@ -281,10 +281,10 @@ func decodeFunctionSection(contents []byte) (*wasm.FunctionSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.FunctionSection{FuncTypeIdxs: funcTypeIdxs}, nil
+	return funcTypeIdxs, nil
 }
 
-func decodeTableSection(contents []byte) (*wasm.TableSection, error) {
+func decodeTableSection(contents []byte) ([]wasm.Limits, error) {
 	reader := bytes.NewReader(contents)
 
 	tables, err := readVec(reader, readTableType)
@@ -296,10 +296,10 @@ func decodeTableSection(contents []byte) (*wasm.TableSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.TableSection{Tables: tables}, nil
+	return tables, nil
 }
 
-func decodeMemorySection(contents []byte) (*wasm.MemorySection, error) {
+func decodeMemorySection(contents []byte) ([]wasm.Limits, error) {
 	reader := bytes.NewReader(contents)
 
 	memories, err := readVec(reader, readLimits)
@@ -311,10 +311,10 @@ func decodeMemorySection(contents []byte) (*wasm.MemorySection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.MemorySection{Memories: memories}, nil
+	return memories, nil
 }
 
-func decodeGlobalSection(contents []byte) (*wasm.GlobalSection, error) {
+func decodeGlobalSection(contents []byte) ([]wasm.GlobalDefinition, error) {
 	reader := bytes.NewReader(contents)
 
 	globals, err := readVec(reader, func(reader *bytes.Reader) (wasm.GlobalDefinition, error) {
@@ -343,10 +343,10 @@ func decodeGlobalSection(contents []byte) (*wasm.GlobalSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.GlobalSection{Definitions: globals}, nil
+	return globals, nil
 }
 
-func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
+func decodeExportSection(contents []byte) ([]wasm.Export, error) {
 	reader := bytes.NewReader(contents)
 
 	exports, err := readVec(reader, func(reader *bytes.Reader) (wasm.Export, error) {
@@ -386,10 +386,10 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.ExportSection{Exports: exports}, nil
+	return exports, nil
 }
 
-func decodeStartSection(contents []byte) (*wasm.StartSection, error) {
+func decodeStartSection(contents []byte) (*uint32, error) {
 	reader := bytes.NewReader(contents)
 
 	idx, err := readLEB128U32(reader)
@@ -401,10 +401,10 @@ func decodeStartSection(contents []byte) (*wasm.StartSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.StartSection{FuncIdx: idx}, nil
+	return &idx, nil
 }
 
-func decodeElementSection(contents []byte) (*wasm.ElementSection, error) {
+func decodeElementSection(contents []byte) ([]wasm.Element, error) {
 	reader := bytes.NewReader(contents)
 
 	elements, err := readVec(reader, func(reader *bytes.Reader) (wasm.Element, error) {
@@ -438,10 +438,10 @@ func decodeElementSection(contents []byte) (*wasm.ElementSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.ElementSection{Elements: elements}, nil
+	return elements, nil
 }
 
-func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
+func decodeCodeSection(contents []byte) ([]wasm.Function, error) {
 	reader := bytes.NewReader(contents)
 
 	codes, err := readVec(reader, func(reader *bytes.Reader) (wasm.Function, error) {
@@ -515,10 +515,10 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.CodeSection{Codes: codes}, nil
+	return codes, nil
 }
 
-func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
+func decodeDataSection(contents []byte) ([]wasm.DataEntry, error) {
 	reader := bytes.NewReader(contents)
 
 	entries, err := readVec(reader, func(reader *bytes.Reader) (wasm.DataEntry, error) {
@@ -560,5 +560,5 @@ func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
 		return nil, ErrSectionMismatch
 	}
 
-	return &wasm.DataSection{Entries: entries}, nil
+	return entries, nil
 }
