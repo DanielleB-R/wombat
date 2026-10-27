@@ -155,22 +155,7 @@ func readTableType(reader *bytes.Reader) (wasm.Limits, error) {
 }
 
 func readIndexVector(reader *bytes.Reader) ([]uint32, error) {
-	length, err := readLength(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	indexes := make([]uint32, length)
-
-	for i := range length {
-		index, err := readLEB128U32(reader)
-		if err != nil {
-			return nil, err
-		}
-		indexes[i] = index
-	}
-
-	return indexes, nil
+	return readVec(reader, readLEB128U32)
 }
 
 func readGlobalType(reader *bytes.Reader) (wasm.GlobalType, error) {
@@ -343,4 +328,23 @@ func readExpr(reader *bytes.Reader) (*wasm.Expr, error) {
 	}
 
 	return &wasm.Expr{Instructions: instructions}, nil
+}
+
+func readVec[T any](reader *bytes.Reader, read func(*bytes.Reader) (T, error)) ([]T, error) {
+	length, err := readLength(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	vec := make([]T, length)
+
+	for i := range length {
+		val, err := read(reader)
+		if err != nil {
+			return nil, err
+		}
+		vec[i] = val
+	}
+
+	return vec, nil
 }
