@@ -2,9 +2,7 @@ package decode
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io"
 
 	"github.com/DanielleB-R/wombat/wasm"
 )
@@ -39,7 +37,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 	for reader.Len() > 0 {
 		id, err := reader.ReadByte()
 		if err != nil {
-			return nil, fmt.Errorf("error reading section id: %w", err)
+			return nil, ErrFileTooShort
 		}
 
 		if id != 0 && id <= lastID {
@@ -52,7 +50,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 			lastID = id
 		}
 
-		length, err := ReadLEB128U32(reader)
+		length, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, fmt.Errorf("error reading section length: %w", err)
 		}
@@ -62,12 +60,9 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 		}
 
 		contents := make([]byte, length)
-		n, err := reader.Read(contents)
+		n, _ := reader.Read(contents)
 		if n != int(length) {
 			return nil, ErrNotEnoughBytes
-		}
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("error reading section contents, %w", err)
 		}
 
 		if id == 0 {
@@ -254,7 +249,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 
 		kind, err := reader.ReadByte()
 		if err != nil {
-			return nil, err
+			return nil, ErrFileTooShort
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
@@ -265,7 +260,7 @@ func decodeImportSection(contents []byte) (*wasm.ImportSection, error) {
 
 		switch extKind {
 		case wasm.FuncKind:
-			idx, err := ReadLEB128U32(reader)
+			idx, err := readLEB128U32(reader)
 			if err != nil {
 				return nil, err
 			}
@@ -413,7 +408,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 
 		kind, err := reader.ReadByte()
 		if err != nil {
-			return nil, err
+			return nil, ErrFileTooShort
 		}
 		extKind := wasm.ExternKind(kind)
 		if !extKind.IsValid() {
@@ -422,7 +417,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 
 		exports[i].Kind = extKind
 
-		idx, err := ReadLEB128U32(reader)
+		idx, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -439,7 +434,7 @@ func decodeExportSection(contents []byte) (*wasm.ExportSection, error) {
 func decodeStartSection(contents []byte) (*wasm.StartSection, error) {
 	reader := bytes.NewReader(contents)
 
-	idx, err := ReadLEB128U32(reader)
+	idx, err := readLEB128U32(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +457,7 @@ func decodeElementSection(contents []byte) (*wasm.ElementSection, error) {
 	elements := make([]wasm.Element, length)
 
 	for i := range length {
-		tableIdx, err := ReadLEB128U32(reader)
+		tableIdx, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -505,10 +500,7 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		}
 
 		buffer := make([]byte, size)
-		n, err := reader.Read(buffer)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
+		n, _ := reader.Read(buffer)
 		if n != int(size) {
 			return nil, ErrNotEnoughBytes
 		}
@@ -523,7 +515,7 @@ func decodeCodeSection(contents []byte) (*wasm.CodeSection, error) {
 		locals := make([]wasm.Local, localLength)
 
 		for j := range localLength {
-			count, err := ReadLEB128U32(funcReader)
+			count, err := readLEB128U32(funcReader)
 			if err != nil {
 				return nil, err
 			}
@@ -577,7 +569,7 @@ func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
 	entries := make([]wasm.DataEntry, length)
 
 	for i := range length {
-		memIdx, err := ReadLEB128U32(reader)
+		memIdx, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -596,10 +588,7 @@ func decodeDataSection(contents []byte) (*wasm.DataSection, error) {
 
 		init := make([]byte, initLength)
 
-		n, err := reader.Read(init)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
+		n, _ := reader.Read(init)
 		if n != int(initLength) {
 			return nil, ErrNotEnoughBytes
 		}

@@ -2,8 +2,7 @@ package decode
 
 import (
 	"bytes"
-	"errors"
-	"io"
+	"fmt"
 	"unicode/utf8"
 
 	"github.com/DanielleB-R/wombat/wasm"
@@ -55,14 +54,14 @@ func (d Error) Error() string {
 	case ErrTooManyLocals:
 		return "too many locals"
 	default:
-		panic("invalid value")
+		return fmt.Sprintf("unknown error %d", d)
 	}
 }
 
 func expectByte(reader *bytes.Reader, value byte) error {
 	found, err := reader.ReadByte()
 	if err != nil {
-		return err
+		return ErrFileTooShort
 	}
 	if found != value {
 		return ErrValueMismatch
@@ -71,7 +70,7 @@ func expectByte(reader *bytes.Reader, value byte) error {
 }
 
 func readLength(reader *bytes.Reader) (uint32, error) {
-	length, err := ReadLEB128U32(reader)
+	length, err := readLEB128U32(reader)
 	if err != nil {
 		return 0, err
 	}
@@ -89,10 +88,7 @@ func readName(reader *bytes.Reader) (string, error) {
 	}
 
 	nameBytes := make([]byte, length)
-	n, err := reader.Read(nameBytes)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
+	n, _ := reader.Read(nameBytes)
 	if n != int(length) {
 		return "", ErrNotEnoughBytes
 	}
@@ -113,14 +109,14 @@ func readLimits(reader *bytes.Reader) (wasm.Limits, error) {
 	}
 	limits.HasMax = flag
 
-	minVal, err := ReadLEB128U32(reader)
+	minVal, err := readLEB128U32(reader)
 	if err != nil {
 		return limits, err
 	}
 	limits.Min = minVal
 
 	if limits.HasMax {
-		maxVal, err := ReadLEB128U32(reader)
+		maxVal, err := readLEB128U32(reader)
 		if err != nil {
 			return limits, err
 		}
@@ -133,7 +129,7 @@ func readLimits(reader *bytes.Reader) (wasm.Limits, error) {
 func readValueType(reader *bytes.Reader) (wasm.ValType, error) {
 	input, err := reader.ReadByte()
 	if err != nil {
-		return 0, err
+		return 0, ErrFileTooShort
 	}
 	valType := wasm.ValType(input)
 	if !valType.IsValid() {
@@ -145,7 +141,7 @@ func readValueType(reader *bytes.Reader) (wasm.ValType, error) {
 func readBool(reader *bytes.Reader) (bool, error) {
 	flag, err := reader.ReadByte()
 	if err != nil {
-		return false, err
+		return false, ErrFileTooShort
 	}
 	if flag > 1 {
 		return false, ErrBadEnum
@@ -170,7 +166,7 @@ func readIndexVector(reader *bytes.Reader) ([]uint32, error) {
 	indexes := make([]uint32, length)
 
 	for i := range length {
-		index, err := ReadLEB128U32(reader)
+		index, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -218,7 +214,7 @@ func readInstruction(reader *bytes.Reader) (wasm.Inst, error) {
 func readOpcode(reader *bytes.Reader) (wasm.Opcode, error) {
 	input, err := reader.ReadByte()
 	if err != nil {
-		return 0, err
+		return 0, ErrFileTooShort
 	}
 	opcode := wasm.Opcode(input)
 	if !opcode.IsValid() {
@@ -230,13 +226,13 @@ func readOpcode(reader *bytes.Reader) (wasm.Opcode, error) {
 func readMemArg(reader *bytes.Reader) (wasm.MemArg, error) {
 	var result wasm.MemArg
 
-	align, err := ReadLEB128U32(reader)
+	align, err := readLEB128U32(reader)
 	if err != nil {
 		return result, err
 	}
 	result.Align = align
 
-	offset, err := ReadLEB128U32(reader)
+	offset, err := readLEB128U32(reader)
 	if err != nil {
 		return result, err
 	}
@@ -252,7 +248,7 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 	case wasm.Block, wasm.Loop, wasm.If:
 		blockType, err := reader.ReadByte()
 		if err != nil {
-			return nil, err
+			return nil, ErrFileTooShort
 		}
 		if blockType != 0x40 && !wasm.ValType(blockType).IsValid() {
 			return nil, ErrBadEnum
@@ -260,21 +256,21 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 		return blockType, nil
 	case wasm.Br, wasm.BrIf, wasm.Call, wasm.LocalGet, wasm.LocalSet, wasm.LocalTee, wasm.GlobalGet, wasm.GlobalSet:
 		// read an index
-		return ReadLEB128U32(reader)
+		return readLEB128U32(reader)
 	case wasm.BrTable:
 		idx, err := readIndexVector(reader)
 		if err != nil {
 			return nil, err
 		}
 
-		defaultIdx, err := ReadLEB128U32(reader)
+		defaultIdx, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, err
 		}
 
 		return wasm.BranchTable{Indices: idx, Default: defaultIdx}, nil
 	case wasm.CallIndirect:
-		typeIdx, err := ReadLEB128U32(reader)
+		typeIdx, err := readLEB128U32(reader)
 		if err != nil {
 			return nil, err
 		}
@@ -292,25 +288,19 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 		}
 		return nil, nil
 	case wasm.I32Const:
-		return ReadLEB128I32(reader)
+		return readLEB128I32(reader)
 	case wasm.I64Const:
-		return ReadLEB128I64(reader)
+		return readLEB128I64(reader)
 	case wasm.F32Const:
 		result := [4]byte{0}
-		n, err := reader.Read(result[:])
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
+		n, _ := reader.Read(result[:])
 		if n != 4 {
 			return nil, ErrNotEnoughBytes
 		}
 		return result, nil
 	case wasm.F64Const:
 		result := [8]byte{0}
-		n, err := reader.Read(result[:])
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
+		n, _ := reader.Read(result[:])
 		if n != 8 {
 			return nil, ErrNotEnoughBytes
 		}

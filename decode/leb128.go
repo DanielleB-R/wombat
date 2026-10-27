@@ -28,8 +28,8 @@ func (l LEB128Error) Error() string {
 	}
 }
 
-// ReadLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader
-func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
+// readLEB128U32 decodes an unsigned 32 bit integer in LEB128 format from the front of the reader
+func readLEB128U32(reader *bytes.Reader) (uint32, error) {
 	var result uint32
 	n := 0
 
@@ -54,8 +54,8 @@ func ReadLEB128U32(reader *bytes.Reader) (uint32, error) {
 	return result, nil
 }
 
-// ReadLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the reader
-func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
+// readLEB128I32 decodes a signed 32 bit integer in LEB128 format from the front of the reader
+func readLEB128I32(reader *bytes.Reader) (int32, error) {
 	var result int32
 	n := 0
 	var thisByte byte
@@ -77,7 +77,7 @@ func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 		n++
 	}
 
-	if thisByte&0x40 != 0 || (n == 4 && thisByte&0x08 != 0) {
+	if n < 4 && thisByte&0x40 != 0 {
 		result |= (^0) << ((n + 1) * 7)
 	}
 	if n == 4 && thisByte&0x70 != (thisByte&0x08>>3)*0x70 {
@@ -87,8 +87,8 @@ func ReadLEB128I32(reader *bytes.Reader) (int32, error) {
 	return result, nil
 }
 
-// ReadLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the reader
-func ReadLEB128I64(reader *bytes.Reader) (int64, error) {
+// readLEB128I64 decodes a signed 64 bit integer in LEB128 format from the front of the reader
+func readLEB128I64(reader *bytes.Reader) (int64, error) {
 	var result int64
 	n := 0
 	var thisByte byte
@@ -110,7 +110,7 @@ func ReadLEB128I64(reader *bytes.Reader) (int64, error) {
 		n++
 	}
 
-	if thisByte&0x40 != 0 || (n == 9 && thisByte&0x08 != 0) {
+	if n < 9 && thisByte&0x40 != 0 {
 		result |= (^0) << ((n + 1) * 7)
 	}
 	if n == 9 && thisByte&0x7e != (thisByte&0x01)*0x7e {

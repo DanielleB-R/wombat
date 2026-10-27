@@ -22,7 +22,7 @@ var errNotWired = errors.New("decode tests are not wired to the implementation y
 // reports how many bytes it consumed.
 func testReadU32(b []byte) (v uint32, n int, err error) {
 	reader := bytes.NewReader(b)
-	v, err = ReadLEB128U32(reader)
+	v, err = readLEB128U32(reader)
 	n = len(b) - reader.Len()
 	return
 }
@@ -30,7 +30,7 @@ func testReadU32(b []byte) (v uint32, n int, err error) {
 // testReadS32 decodes one LEB128 s32 (the immediate of i32.const).
 func testReadS32(b []byte) (v int32, n int, err error) {
 	reader := bytes.NewReader(b)
-	v, err = ReadLEB128I32(reader)
+	v, err = readLEB128I32(reader)
 	n = len(b) - reader.Len()
 	return
 }
@@ -38,7 +38,7 @@ func testReadS32(b []byte) (v int32, n int, err error) {
 // testReadS64 decodes one LEB128 s64 (the immediate of i64.const).
 func testReadS64(b []byte) (v int64, n int, err error) {
 	reader := bytes.NewReader(b)
-	v, err = ReadLEB128I64(reader)
+	v, err = readLEB128I64(reader)
 	n = len(b) - reader.Len()
 	return
 }
