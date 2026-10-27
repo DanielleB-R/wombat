@@ -8,7 +8,6 @@ type RawModule struct {
 // RawSection contains one non-decoded section of the WASM file
 type RawSection struct {
 	ID       byte
-	Length   uint32
 	Contents []byte
 }
 

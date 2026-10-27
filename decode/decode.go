@@ -50,13 +50,10 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 			lastID = id
 		}
 
-		length, err := readLength(reader)
+		contents, err := readByteVec(reader)
 		if err != nil {
 			return nil, err
 		}
-
-		contents := make([]byte, length)
-		_, _ = reader.Read(contents)
 
 		if id == 0 {
 			_, err := readName(bytes.NewReader(contents))
@@ -66,7 +63,7 @@ func ReadSections(reader *bytes.Reader) (*wasm.RawModule, error) {
 			continue
 		}
 
-		module.Sections = append(module.Sections, wasm.RawSection{ID: id, Length: length, Contents: contents})
+		module.Sections = append(module.Sections, wasm.RawSection{ID: id, Contents: contents})
 	}
 
 	return &module, nil
@@ -233,47 +230,39 @@ func decodeImport(reader *bytes.Reader) (wasm.Import, error) {
 
 func decodeGlobalDefinition(reader *bytes.Reader) (wasm.GlobalDefinition, error) {
 	var definition wasm.GlobalDefinition
+	var err error
 
-	globalType, err := readGlobalType(reader)
+	definition.Type, err = readGlobalType(reader)
 	if err != nil {
 		return definition, err
 	}
-	definition.Type = globalType
 
-	init, err := readExpr(reader)
+	definition.Init, err = readExpr(reader)
 	if err != nil {
 		return definition, err
 	}
-	definition.Init = init
 
 	return definition, nil
 }
 
 func decodeExport(reader *bytes.Reader) (wasm.Export, error) {
 	var export wasm.Export
+	var err error
 
-	name, err := readName(reader)
+	export.Name, err = readName(reader)
 	if err != nil {
 		return export, err
 	}
-	export.Name = name
 
-	kind, err := reader.ReadByte()
-	if err != nil {
-		return export, ErrUnexpectedEOF
-	}
-	extKind := wasm.ExternKind(kind)
-	if !extKind.IsValid() {
-		return export, ErrBadEnum
-	}
-
-	export.Kind = extKind
-
-	idx, err := readLEB128U32(reader)
+	export.Kind, err = readExternKind(reader)
 	if err != nil {
 		return export, err
 	}
-	export.Index = idx
+
+	export.Index, err = readLEB128U32(reader)
+	if err != nil {
+		return export, err
+	}
 
 	return export, nil
 }
@@ -295,68 +284,60 @@ func decodeStartSection(contents []byte) (*uint32, error) {
 
 func decodeElement(reader *bytes.Reader) (wasm.Element, error) {
 	var element wasm.Element
-	tableIdx, err := readLEB128U32(reader)
-	if err != nil {
-		return element, err
-	}
-	element.TableIdx = tableIdx
+	var err error
 
-	offset, err := readExpr(reader)
+	element.TableIdx, err = readLEB128U32(reader)
 	if err != nil {
 		return element, err
 	}
-	element.Offset = offset
 
-	init, err := readIndexVector(reader)
+	element.Offset, err = readExpr(reader)
 	if err != nil {
 		return element, err
 	}
-	element.Init = init
+
+	element.Init, err = readVec(reader, readLEB128U32)
+	if err != nil {
+		return element, err
+	}
 
 	return element, nil
+}
+
+func readLocal(reader *bytes.Reader) (wasm.Local, error) {
+	var local wasm.Local
+	var err error
+
+	local.Count, err = readLEB128U32(reader)
+	if err != nil {
+		return local, err
+	}
+
+	local.Type, err = readValueType(reader)
+	if err != nil {
+		return local, err
+	}
+
+	return local, nil
 }
 
 func decodeFunction(reader *bytes.Reader) (wasm.Function, error) {
 	var function wasm.Function
 
-	size, err := readLength(reader)
+	buffer, err := readByteVec(reader)
 	if err != nil {
 		return function, err
 	}
 
-	buffer := make([]byte, size)
-	n, _ := reader.Read(buffer)
-	if n != int(size) {
-		return function, ErrUnexpectedEOF
-	}
-
 	funcReader := bytes.NewReader(buffer)
 
-	locals, err := readVec(funcReader, func(reader *bytes.Reader) (wasm.Local, error) {
-		var local wasm.Local
-
-		count, err := readLEB128U32(funcReader)
-		if err != nil {
-			return local, err
-		}
-		local.Count = count
-
-		valType, err := readValueType(funcReader)
-		if err != nil {
-			return local, err
-		}
-		local.Type = valType
-
-		return local, nil
-	})
-
+	function.Locals, err = readVec(funcReader, readLocal)
 	if err != nil {
 		return function, err
 	}
 
 	var localCount int64
-
-	for _, local := range locals {
+	for _, local := range function.Locals {
 		localCount += int64(local.Count)
 	}
 
@@ -364,13 +345,10 @@ func decodeFunction(reader *bytes.Reader) (wasm.Function, error) {
 		return function, ErrTooManyLocals
 	}
 
-	function.Locals = locals
-
-	expr, err := readExpr(funcReader)
+	function.Body, err = readExpr(funcReader)
 	if err != nil {
 		return function, err
 	}
-	function.Body = expr
 
 	if funcReader.Len() > 0 {
 		return function, ErrSectionMismatch
@@ -381,31 +359,18 @@ func decodeFunction(reader *bytes.Reader) (wasm.Function, error) {
 
 func decodeDataEntry(reader *bytes.Reader) (wasm.DataEntry, error) {
 	var entry wasm.DataEntry
+	var err error
 
-	memIdx, err := readLEB128U32(reader)
-	if err != nil {
-		return entry, err
-	}
-	entry.MemIdx = memIdx
-
-	offset, err := readExpr(reader)
-	if err != nil {
-		return entry, err
-	}
-	entry.Offset = offset
-
-	initLength, err := readLength(reader)
+	entry.MemIdx, err = readLEB128U32(reader)
 	if err != nil {
 		return entry, err
 	}
 
-	init := make([]byte, initLength)
-
-	n, _ := reader.Read(init)
-	if n != int(initLength) {
-		return entry, ErrUnexpectedEOF
+	entry.Offset, err = readExpr(reader)
+	if err != nil {
+		return entry, err
 	}
-	entry.Init = init
 
-	return entry, nil
+	entry.Init, err = readByteVec(reader)
+	return entry, err
 }

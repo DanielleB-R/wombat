@@ -78,16 +78,25 @@ func readLength(reader *bytes.Reader) (uint32, error) {
 	return length, nil
 }
 
-func readName(reader *bytes.Reader) (string, error) {
+func readByteVec(reader *bytes.Reader) ([]byte, error) {
 	length, err := readLength(reader)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	nameBytes := make([]byte, length)
-	n, _ := reader.Read(nameBytes)
+	vec := make([]byte, length)
+	n, _ := reader.Read(vec)
 	if n != int(length) {
-		return "", ErrUnexpectedEOF
+		return nil, ErrUnexpectedEOF
+	}
+
+	return vec, nil
+}
+
+func readName(reader *bytes.Reader) (string, error) {
+	nameBytes, err := readByteVec(reader)
+	if err != nil {
+		return "", err
 	}
 
 	if !utf8.Valid(nameBytes) {
@@ -152,10 +161,6 @@ func readTableType(reader *bytes.Reader) (wasm.Limits, error) {
 		return wasm.Limits{}, err
 	}
 	return readLimits(reader)
-}
-
-func readIndexVector(reader *bytes.Reader) ([]uint32, error) {
-	return readVec(reader, readLEB128U32)
 }
 
 func readGlobalType(reader *bytes.Reader) (wasm.GlobalType, error) {
@@ -240,7 +245,7 @@ func readImmediate(reader *bytes.Reader, opcode wasm.Opcode) (any, error) {
 		// read an index
 		return readLEB128U32(reader)
 	case wasm.BrTable:
-		idx, err := readIndexVector(reader)
+		idx, err := readVec(reader, readLEB128U32)
 		if err != nil {
 			return nil, err
 		}
